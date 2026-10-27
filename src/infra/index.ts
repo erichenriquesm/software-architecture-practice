@@ -1,19 +1,16 @@
-import Account from "../app/account/entities/account";
-import { SendUser } from "../app/account/usecases/sendUser";
-import Email from "../app/account/valueObjects/email";
-import FullName from "../app/account/valueObjects/fullName";
-import Phone from "../app/account/valueObjects/phone";
+import { SendUser } from "../application/account/usecases/sendUser";
+import { SendUserByAxios, SendUserByFetch } from "./gateways/fallbackUserSender";
 
-const account = Account.create(
-    new FullName('Eric Motta'),
-    new Email('eric@gmail.com'),
-    new Phone('5544999999999')
-);
-
-const sendUser = new SendUser()
+// Composition root: único lugar que conhece as implementações concretas.
+const userSender = new SendUserByFetch(new SendUserByAxios());
+const sendUser = new SendUser(userSender);
 
 try {
-    await sendUser.exec(account);
+    await sendUser.exec({
+        name: 'Eric Motta',
+        email: 'eric@gmail.com',
+        phone: '5544999999999'
+    });
     console.log('Usuário enviado com sucesso');
 } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
