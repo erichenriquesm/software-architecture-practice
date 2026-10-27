@@ -61,7 +61,7 @@ Regras:
 1. **Um caso de uso não sabe por qual adapter foi chamado.** O mesmo `ReserveFunds` poderia ser chamado por HTTP ou por fila sem mudar uma linha.
 2. **A ACL também existe na entrada:** o evento de outro contexto é traduzido pelo consumer antes de chegar ao caso de uso. Payload externo nunca entra em `application/`.
 3. **A corrente de fallback é um adapter composto** que implementa a mesma porta do gateway. O caso de uso vê uma porta só (`WalletGateway`), não a corrente.
-4. **`src/infra/platform/` tem a base técnica dos adapters** (consumer com retry/DLQ, relay do outbox, cliente gRPC com deadline e retry, `FallbackHandler`), copiada do `service-template` (§6). Cada serviço escreve só a parte específica: o mapeamento e a ACL.
+4. **`src/infra/platform/` tem a base técnica dos adapters** (consumer com retry/DLQ, relay do outbox, cliente gRPC com deadline e retry, `FallbackHandler`), gerada uma vez, na fase 0, a partir de um template temporário (§6). Cada serviço escreve só a parte específica: o mapeamento e a ACL.
 5. **Teste:** caso de uso com fakes das portas (unidade); adapter contra a tecnologia real (integração).
 
 ### Quando criar uma porta (interface)
@@ -412,17 +412,17 @@ Ao receber `SIGTERM`: parar de consumir, terminar a mensagem em andamento, dar `
 | O quê | Onde fica | Como chega a um serviço novo |
 |---|---|---|
 | Domínio | `src/domain/` do serviço | Escrito pelo serviço. Nunca é compartilhado: `Quantity` de `wallet` e de `matching` são classes separadas |
-| **Requisitos não funcionais** (retry, timeout, `FallbackHandler`, outbox, inbox, consumer com retry/DLQ, rate limit, `Idempotency-Key`, mTLS + allowlist, leitura de segredos) | **`src/infra/platform/`** do serviço: `resilience/`, `messaging/`, `http/`, `security/` | **Copiado do `service-template`** pelo `scaffold`. A partir daí é código do serviço |
-| Helpers de teste (bancos e broker efêmeros, CA de teste, fakes gRPC/HTTP, fixtures) | **`test/support/`** do serviço | Copiado do template, como acima |
+| **Requisitos não funcionais** (retry, timeout, `FallbackHandler`, outbox, inbox, consumer com retry/DLQ, rate limit, `Idempotency-Key`, mTLS + allowlist, leitura de segredos) | **`src/infra/platform/`** do serviço: `resilience/`, `messaging/`, `http/`, `security/` | Gerado **uma vez**, na fase 0, a partir de um template temporário que foi apagado em seguida. A partir daí é código do serviço e evolui ali |
+| Helpers de teste (bancos e broker efêmeros, CA de teste, fakes gRPC/HTTP, fixtures) | **`test/support/`** do serviço | Gerados junto, na fase 0 |
 | Contratos | `contracts/` do serviço (ver abaixo) | O produtor é dono; o consumidor guarda cópia |
-| Regras de lint e de arquitetura | `eslint.config.mjs` e `.dependency-cruiser.cjs` do serviço | Copiadas do template |
+| Regras de lint e de arquitetura | `eslint.config.mjs` e `.dependency-cruiser.cjs` do serviço | Geradas junto, na fase 0 |
 
 **Regra de independência.** Um serviço:
 - **nunca** importa nada fora da própria pasta (`../` é proibido e o teste de arquitetura quebra se acontecer);
 - tem `package.json` e `package-lock.json` próprios, e um `Dockerfile` cujo contexto de build é só a pasta dele;
 - depende da infraestrutura compartilhada (RabbitMQ, Redis, edge, `security-init`) só pela rede `trading-net` e pelos nomes DNS, nunca por arquivo.
 
-**Trade-off aceito.** Uma correção num RNF precisa ser replicada em cada serviço que tem aquele código. Em troca, não existe registro de pacotes, versão para publicar nem serviço arrastando outro numa atualização. O `service-template` é sempre a versão mais nova do kit; serviços antigos adotam uma correção quando quiserem.
+**Trade-off aceito.** Uma correção num RNF precisa ser replicada em cada serviço que tem aquele código. Em troca, não existe registro de pacotes, versão para publicar nem serviço arrastando outro numa atualização. **Não existe gerador permanente:** o template e o script `scaffold` serviram só para criar os cinco serviços na fase 0 e foram apagados. Um serviço novo no futuro nasce copiando um serviço existente.
 
 ### Contratos: o produtor é dono, o consumidor guarda cópia
 

@@ -3,5 +3,5 @@ name: trading
 include:
   - infra/docker-compose.yml
   - path:
-      - service-template/docker-compose.yml
-      - service-template/docker-compose.platform.yml
+      - account/docker-compose.yml
+      - account/docker-compose.platform.yml

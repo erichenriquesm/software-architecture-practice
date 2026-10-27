@@ -31,9 +31,7 @@ backend/
     verify/                   ← testes da própria infra (projeto standalone pequeno)
   scripts/                    ← só biblioteca padrão do Node, rodados em container
     check-root-layout.sh
-    scaffold.ts               ← copia o service-template para backend/<svc>/ e troca os nomes
     check-contracts.ts        ← compara cada cópia de contrato com o original do dono
-  service-template/           ← serviço standalone mínimo e testado; base de todo serviço novo
   account/                    ← projeto STANDALONE (pode virar repositório próprio)
     package.json  package-lock.json
     tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts

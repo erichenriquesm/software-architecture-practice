@@ -1,5 +1,0 @@
-services:
-  service-template-db:
-    depends_on:
-      security-init:
-        condition: service_completed_successfully

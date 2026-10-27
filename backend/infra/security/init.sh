@@ -3,12 +3,11 @@ set -eu
 umask 077
 
 SECRETS_DIR="${SECRETS_DIR:-/secrets}"
-IDS="account wallet order matching market-data service-template"
+IDS="account wallet order matching market-data"
 
 camel_of() {
   case "$1" in
     market-data) echo marketData ;;
-    service-template) echo serviceTemplate ;;
     *) echo "$1" ;;
   esac
 }
@@ -30,9 +29,6 @@ perm_of() {
     marketData:c) echo '^marketData\..*$' ;;
     marketData:w) echo '^(marketData\..*|retry)$' ;;
     marketData:r) echo '^(marketData\..*|matching\.events|retry)$' ;;
-    serviceTemplate:c) echo '^serviceTemplate\..*$' ;;
-    serviceTemplate:w) echo '^(serviceTemplate\..*|retry)$' ;;
-    serviceTemplate:r) echo '^(serviceTemplate\..*|retry)$' ;;
     admin:*) echo '.*' ;;
   esac
 }

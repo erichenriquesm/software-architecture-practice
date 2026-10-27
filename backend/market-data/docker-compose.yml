@@ -1,0 +1,138 @@
+x-service-env: &service-env
+  SERVICE_NAME: market-data
+  DATABASE_HOST: market-data-db
+  DATABASE_NAME: market_data
+  DATABASE_USER: market_data_app
+  DATABASE_PASSWORD_FILE: /run/secrets/market-data-db-app-password
+
+x-watch: &watch
+  watch:
+    - action: sync
+      path: ./src
+      target: /app/src
+      ignore: [infra/generated/]
+    - action: sync+restart
+      path: ./contracts
+      target: /app/contracts
+    - action: sync
+      path: ./migrations
+      target: /app/migrations
+    - action: rebuild
+      path: ./package.json
+    - action: rebuild
+      path: ./package-lock.json
+    - action: rebuild
+      path: ./Dockerfile
+
+services:
+  market-data-db:
+    image: postgres:17-alpine
+    container_name: market-data-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/market-data-db-superuser-password
+      DATABASE_NAME: market_data
+      DATABASE_SCHEMA: market_data
+      DATABASE_MIGRATOR_USER: market_data_migrator
+      DATABASE_APP_USER: market_data_app
+      DATABASE_MIGRATOR_PASSWORD_FILE: /run/secrets/market-data-db-migrator-password
+      DATABASE_APP_PASSWORD_FILE: /run/secrets/market-data-db-app-password
+    volumes:
+      - market-data-db-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: market-data-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d market_data"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [trading-net]
+
+  market-data-migrate:
+    build: { context: ., target: dev }
+    container_name: market-data-migrate
+    command: ["npx", "tsx", "src/infra/main/migrate.ts"]
+    environment:
+      DATABASE_HOST: market-data-db
+      DATABASE_NAME: market_data
+      DATABASE_MIGRATOR_USER: market_data_migrator
+      DATABASE_MIGRATOR_PASSWORD_FILE: /run/secrets/market-data-db-migrator-password
+    volumes:
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: market-data-migrate
+    depends_on:
+      market-data-db:
+        condition: service_healthy
+    networks: [trading-net]
+
+  market-data-api:
+    build: { context: ., target: dev }
+    container_name: market-data-api
+    command: ["npx", "tsx", "watch", "src/infra/main/api.ts"]
+    environment:
+      <<: *service-env
+      HTTP_PORT: "3000"
+    ports:
+      - "127.0.0.1:3005:3000"
+    volumes:
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: market-data-api
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      market-data-migrate:
+        condition: service_completed_successfully
+    networks: [trading-net]
+    develop: *watch
+
+  market-data-worker:
+    build: { context: ., target: dev }
+    container_name: market-data-worker
+    command: ["npx", "tsx", "watch", "src/infra/main/worker.ts"]
+    environment:
+      <<: *service-env
+      HEALTH_PORT: "3001"
+    volumes:
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: market-data-worker
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      market-data-migrate:
+        condition: service_completed_successfully
+    networks: [trading-net]
+    develop: *watch
+
+networks:
+  trading-net:
+    name: trading-net
+    driver: bridge
+
+volumes:
+  trading-secrets:
+    name: trading-secrets
+  market-data-db-data:
+    name: market-data-db-data

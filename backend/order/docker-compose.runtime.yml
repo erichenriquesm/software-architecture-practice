@@ -1,0 +1,14 @@
+services:
+  order-migrate:
+    build: { context: ., target: runtime }
+    command: ["node", "dist/infra/main/migrate.js"]
+
+  order-api:
+    build: { context: ., target: runtime }
+    command: ["node", "dist/infra/main/api.js"]
+    develop: !reset null
+
+  order-worker:
+    build: { context: ., target: runtime }
+    command: ["node", "dist/infra/main/worker.js"]
+    develop: !reset null

@@ -110,7 +110,7 @@ Linha cheia = assíncrono (RabbitMQ). Linha tracejada = síncrono interno (gRPC)
 
 1. **Nenhum serviço lê o banco de outro.** Integração só por evento ou gRPC via Gateway + ACL.
 2. **Agregados de contextos diferentes se referenciam por id** (`accountId`, `orderId`), nunca por objeto.
-3. **Nenhum código é compartilhado entre serviços** — nem domínio, nem técnico. Cada serviço tem os próprios RNF em `src/infra/platform/` (copiados do `service-template`) e cópia dos contratos que usa. Ver [princípios §6](01-principios.md#6-c%C3%B3digo-compartilhado-n%C3%A3o-h%C3%A1).
+3. **Nenhum código é compartilhado entre serviços** — nem domínio, nem técnico. Cada serviço tem os próprios RNF em `src/infra/platform/` (gerados uma vez, na fase 0, a partir de um template temporário) e cópia dos contratos que usa. Ver [princípios §6](01-principios.md#6-c%C3%B3digo-compartilhado-n%C3%A3o-h%C3%A1).
 4. **Chamada síncrona entre serviços (gRPC) é exceção.** Leitura de dado de outro contexto vem de **projeção local** alimentada por evento (CQRS). gRPC só como fallback, quando a projeção ainda não existe, e sempre com Gateway + ACL, timeout, retry com backoff e fallback.
 5. **Leitura pública nunca espera outro serviço.** Toda consulta é respondida por uma tabela de projeção local (`*_view`) já no formato da resposta. Ver [princípios: CQRS e tabelas de projeção](01-principios.md#cqrs-e-tabelas-de-proje%C3%A7%C3%A3o).
 
