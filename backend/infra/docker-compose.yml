@@ -1,0 +1,69 @@
+services:
+  security-init:
+    build: ./security
+    network_mode: none
+    volumes:
+      - trading-secrets:/secrets
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: rabbitmq
+    hostname: rabbitmq
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-definitions.conf:ro
+      - trading-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      security-init:
+        condition: service_completed_successfully
+    networks:
+      - trading-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: ["redis-server", "--aclfile", "/run/secrets/users.acl", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: redis
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --user healthcheck --pass invalid ping 2>&1 | grep -qE 'WRONGPASS|PONG'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      security-init:
+        condition: service_completed_successfully
+    networks:
+      - trading-net
+
+networks:
+  trading-net:
+    name: trading-net
+    driver: bridge
+
+volumes:
+  trading-secrets:
+    name: trading-secrets
+  trading-rabbitmq-data:
+    name: trading-rabbitmq-data
