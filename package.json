@@ -16,7 +16,8 @@
     "test:coverage": "vitest run --coverage",
     "docker:build": "docker build -t software-architecture .",
     "docker:run": "docker run --rm software-architecture",
-    "start": "npm run build && npm run docker:run"
+    "docker:test": "docker build --target builder -t software-architecture:test . && docker run --rm software-architecture:test npm run test:run",
+    "start": "npm run docker:build && npm run docker:run"
   },
   "author": "",
   "license": "ISC",
