@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package trading.wallet.v1;
+
+service WalletService {
+  rpc GetBalances(GetBalancesRequest) returns (GetBalancesResponse);
+}
+
+message GetBalancesRequest {
+  string account_id = 1;
+}
+
+message Balance {
+  string asset_id = 1;
+  string available = 2;
+  string reserved = 3;
+}
+
+message GetBalancesResponse {
+  repeated Balance balances = 1;
+  int64 version = 2;
+}

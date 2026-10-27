@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading.local/contracts/account.created.v1.schema.json",
+  "title": "account.created v1 payload",
+  "type": "object",
+  "required": ["accountId"],
+  "additionalProperties": false,
+  "properties": {
+    "accountId": { "type": "string", "format": "uuid" }
+  }
+}
