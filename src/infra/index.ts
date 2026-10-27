@@ -18,5 +18,4 @@ try {
 } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`Falha ao enviar usuário: ${message}`);
-    process.exitCode = 1;
 }

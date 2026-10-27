@@ -14,8 +14,7 @@ export class SendUserByFecthProcessor implements FallbackProcessor {
 
     async process(input: RegisterUserInputDTO): Promise<any> {
         try {
-            throw new Error('Service ended');
-            const response = await fetch('https://webhook.site/5342ac4d-f935-4339-958b-0b55f53e14b2', {
+            const response = await fetch('https://webhook.site/f5218609-7098-4bf0-a5b9-d38b23d02476', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -23,8 +22,12 @@ export class SendUserByFecthProcessor implements FallbackProcessor {
                 body: JSON.stringify(input)
             });
 
-            if (!response.ok) {
+            if(!response.ok && this.next) {
                 throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+
+            if (!response.ok) {
+                return response.json();
             }
         } catch (e) {
             if (!this.next) throw e;
@@ -40,7 +43,7 @@ export class SendUserByAxiosProcessor implements FallbackProcessor {
 
     async process(input: RegisterUserInputDTO): Promise<any> {
         try {
-            const response = await axios.post('https://webhook.site/5342ac4d-f935-4339-958b-0b55f53e14b2', input);
+            const response = await axios.post('https://webhook.site/f5218609-7098-4bf0-a5b9-d38b23d02476', input);
             return response.data;
         } catch (e) {
             if (!this.next) throw e;
