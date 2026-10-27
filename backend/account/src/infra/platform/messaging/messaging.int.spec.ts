@@ -7,6 +7,7 @@ import type { Envelope } from './envelope.js';
 import { createEnvelope, loadEnvelopeValidator } from './envelope.js';
 import type { FailureKind } from './consumer.js';
 import { Consumer } from './consumer.js';
+import { KyselyTransactionRunner } from '../persistence/transactions.js';
 import { appendToOutbox, OutboxRelay } from './outbox.js';
 import type { ConsumerQueue } from './topology.js';
 import { deadLetterQueue, declareConsumerQueue } from './topology.js';
@@ -57,7 +58,7 @@ const queueBoundToTestExchange = async (routingKey: string): Promise<ConsumerQue
 
 const startConsumer = async (definition: ConsumerQueue, handler: (envelope: Envelope) => Promise<void>) => {
   const channel = await broker.connection.createChannel();
-  const consumer = new Consumer(database.db, channel, { definition, handler, validate, classify });
+  const consumer = new Consumer(new KyselyTransactionRunner(database.db), channel, { definition, handler, validate, classify });
   await consumer.start();
   consumers.push(consumer);
 };

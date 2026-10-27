@@ -81,8 +81,17 @@ services:
     environment:
       <<: *service-env
       HTTP_PORT: "3000"
+      GRPC_PORT: "50051"
+      REDIS_HOST: redis
+      REDIS_USER: account
+      REDIS_PASSWORD_FILE: /run/secrets/account-redis-password
+      WALLET_GRPC_ADDR: wallet-api:50051
+      TLS_CA_FILE: /run/secrets/ca.crt
+      TLS_CERT_FILE: /run/secrets/account.crt
+      TLS_KEY_FILE: /run/secrets/account.key
     ports:
       - "127.0.0.1:3001:3000"
+      - "127.0.0.1:50051:50051"
     volumes:
       - type: volume
         source: trading-secrets
@@ -108,6 +117,9 @@ services:
     environment:
       <<: *service-env
       HEALTH_PORT: "3001"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: account
+      RABBITMQ_PASSWORD_FILE: /run/secrets/account-rabbitmq-password
     volumes:
       - type: volume
         source: trading-secrets

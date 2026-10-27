@@ -6,11 +6,25 @@ export const serviceNameSetting = (): string => requiredEnv('SERVICE_NAME');
 
 export const httpPortSetting = (): number => Number(process.env.HTTP_PORT ?? 3000);
 
+export const grpcPortSetting = (): number => Number(process.env.GRPC_PORT ?? 50051);
+
 export const postgresSettings = (): PostgresSettings => ({
   host: requiredEnv('DATABASE_HOST'),
   database: requiredEnv('DATABASE_NAME'),
   user: requiredEnv('DATABASE_USER'),
   password: readSecretFile('DATABASE_PASSWORD_FILE'),
+});
+
+export interface RedisSettings {
+  readonly host: string;
+  readonly username: string;
+  readonly password: string;
+}
+
+export const redisSettings = (): RedisSettings => ({
+  host: requiredEnv('REDIS_HOST'),
+  username: requiredEnv('REDIS_USER'),
+  password: readSecretFile('REDIS_PASSWORD_FILE'),
 });
 
 export const trustedProxySubnets = (): string[] =>

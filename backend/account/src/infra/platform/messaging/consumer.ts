@@ -1,5 +1,6 @@
-import type { Kysely, Transaction } from 'kysely';
+import type { Transaction } from 'kysely';
 import type { Database } from '../../adapters/outbound/persistence/database.js';
+import type { KyselyTransactionRunner } from '../persistence/transactions.js';
 import type { RetryPolicy } from '../resilience/retry.js';
 import { retry } from '../resilience/retry.js';
 import type { AmqpConnection } from './connection.js';
@@ -41,7 +42,7 @@ export class Consumer {
   private consumerTag: string | undefined;
 
   constructor(
-    private readonly db: Kysely<Database>,
+    private readonly runner: KyselyTransactionRunner<Database>,
     private readonly channel: Channel,
     private readonly options: ConsumerOptions,
   ) {}
@@ -78,7 +79,8 @@ export class Consumer {
   private async process(message: Message): Promise<void> {
     const envelope = this.options.validate(JSON.parse(message.content.toString()));
     const run = () =>
-      this.db.transaction().execute(async (trx) => {
+      this.runner.run(async () => {
+        const trx = this.runner.transaction();
         const firstTime = await markProcessed(trx, this.queue, envelope.eventId);
         if (firstTime) await this.options.handler(envelope, trx);
       });

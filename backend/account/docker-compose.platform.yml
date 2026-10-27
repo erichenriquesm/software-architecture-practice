@@ -3,3 +3,8 @@ services:
     depends_on:
       security-init:
         condition: service_completed_successfully
+
+  account-worker:
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
