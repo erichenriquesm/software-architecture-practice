@@ -1,5 +1,5 @@
 # === Estágio 1: Build ===
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ RUN npm run build
 
 
 # === Estágio 2: Imagem final ===
-FROM node:20-alpine
+FROM node:26-alpine
 
 WORKDIR /app
 ENV NODE_ENV=production
