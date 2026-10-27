@@ -1,0 +1,59 @@
+name: service-template-test
+
+services:
+  tests:
+    build: { context: ., target: dev }
+    command: ["npm", "run", "test:integration"]
+    environment:
+      TEST_DATABASE_URL: postgres://postgres:test@service-template-db-test:5432/postgres
+      TEST_RABBITMQ_URL: amqp://test:test@service-template-rabbitmq-test:5672
+      TEST_REDIS_URL: redis://service-template-redis-test:6379
+    depends_on:
+      service-template-db-test:
+        condition: service_healthy
+      service-template-rabbitmq-test:
+        condition: service_healthy
+      service-template-redis-test:
+        condition: service_healthy
+    networks: [service-template-test-net]
+
+  service-template-db-test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [service-template-test-net]
+
+  service-template-rabbitmq-test:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: test
+      RABBITMQ_DEFAULT_PASS: test
+    tmpfs: [/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 10s
+      retries: 40
+    networks: [service-template-test-net]
+
+  service-template-redis-test:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [service-template-test-net]
+
+networks:
+  service-template-test-net:
+    name: service-template-test-net
+    driver: bridge
+    internal: true

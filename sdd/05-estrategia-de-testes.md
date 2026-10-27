@@ -120,7 +120,9 @@ Tudo em container.
 | O quê | Como |
 |---|---|
 | Unidade | Roda no **build da imagem** de cada serviço; ou `npm run docker:test` no serviço (mostra a saída). |
-| Integração + contrato | `docker compose -f backend/<svc>/docker-compose.yml --profile test run --rm tests` — sobe `<svc>-db-test` (Postgres em `tmpfs`), `<svc>-rabbitmq-test` e `<svc>-redis-test` efêmeros numa rede isolada `<svc>-test-net` (§3.1), roda e descarta. Os fakes de outros serviços sobem dentro do processo de teste. |
+| Integração + contrato | `docker compose -f backend/<svc>/docker-compose.test.yml run --rm --build tests` (depois `docker compose -f backend/<svc>/docker-compose.test.yml down -v`) — sobe `<svc>-db-test` (Postgres em `tmpfs`), `<svc>-rabbitmq-test` e `<svc>-redis-test` efêmeros numa rede isolada `<svc>-test-net` (§3.1), roda e descarta. Os fakes de outros serviços sobem dentro do processo de teste. |
 | E2E | `docker compose -f backend/e2e/docker-compose.yml run --rm e2e` — sobe a plataforma inteira com as **imagens finais** (`docker-compose.runtime.yml`, sem watch) e roda os cenários. |
 
 RabbitMQ e Redis dos testes de integração são **efêmeros e isolados por serviço**, para que testes de serviços diferentes não interfiram entre si. A regra de "um único RabbitMQ" vale para a plataforma em execução, não para testes isolados. O E2E é o único nível que sobe os serviços de verdade, cada execução num ambiente novo.
+
+Os testes de integração ficam num arquivo próprio (`docker-compose.test.yml`), que declara só os containers efêmeros de teste. Assim um `down -v` dos testes nunca alcança o volume compartilhado `trading-secrets` nem o banco do serviço.
