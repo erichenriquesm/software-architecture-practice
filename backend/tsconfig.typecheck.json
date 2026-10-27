@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "incremental": false,
+    "customConditions": [
+      "source"
+    ],
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "contracts/src/**/*.ts",
+    "contracts/generated/**/*.ts",
+    "libs/*/src/**/*.ts",
+    "architecture/src/**/*.ts",
+    "service-template/src/**/*.ts",
+    "infra/verify/src/**/*.ts",
+    "scripts/**/*.ts"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@trading/messaging",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "exports": {
+    "./publishing": {
+      "source": "./src/publishing/index.ts",
+      "types": "./dist/publishing/index.d.ts",
+      "default": "./dist/publishing/index.js"
+    },
+    "./consuming": {
+      "source": "./src/consuming/index.ts",
+      "types": "./dist/consuming/index.d.ts",
+      "default": "./dist/consuming/index.js"
+    },
+    "./sql/*": "./sql/*"
+  },
+  "dependencies": {
+    "@trading/contracts": "*",
+    "@trading/resilience": "*",
+    "amqplib": "2.2.0",
+    "kysely": "0.29.7",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@trading/testing": "*",
+    "@types/pg": "8.23.1"
+  }
+}

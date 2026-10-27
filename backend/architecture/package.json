@@ -1,0 +1,8 @@
+{
+  "name": "@trading/architecture",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "dependency-cruiser": "18.7.0"
+  }
+}

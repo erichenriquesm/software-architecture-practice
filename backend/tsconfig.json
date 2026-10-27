@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "contracts"
+    },
+    {
+      "path": "libs/resilience"
+    },
+    {
+      "path": "libs/testing"
+    },
+    {
+      "path": "libs/security"
+    },
+    {
+      "path": "libs/messaging"
+    },
+    {
+      "path": "libs/http"
+    }
+  ]
+}

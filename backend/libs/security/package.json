@@ -1,0 +1,22 @@
+{
+  "name": "@trading/security",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "1.14.6"
+  },
+  "devDependencies": {
+    "@trading/testing": "*",
+    "@trading/contracts": "*"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@trading/service-template",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@trading/contracts": "*",
+    "@trading/resilience": "*",
+    "@trading/messaging": "*",
+    "@trading/http": "*",
+    "@trading/security": "*",
+    "fastify": "5.12.7",
+    "kysely": "0.29.7",
+    "pg": "8.23.1",
+    "decimal.js": "10.6.0",
+    "uuid": "14.0.3"
+  },
+  "devDependencies": {
+    "@trading/testing": "*",
+    "kysely-codegen": "0.20.0",
+    "@types/pg": "8.23.1"
+  }
+}
