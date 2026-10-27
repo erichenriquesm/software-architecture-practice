@@ -7,6 +7,7 @@ import type { Envelope } from './envelope.js';
 import { createEnvelope, loadEnvelopeValidator } from './envelope.js';
 import type { FailureKind } from './consumer.js';
 import { Consumer } from './consumer.js';
+import { KyselyTransactionRunner } from '../persistence/transactions.js';
 import { appendToOutbox, OutboxRelay } from './outbox.js';
 import type { ConsumerQueue } from './topology.js';
 import { deadLetterQueue, declareConsumerQueue } from './topology.js';
@@ -55,9 +56,19 @@ const queueBoundToTestExchange = async (routingKey: string): Promise<ConsumerQue
   return definition;
 };
 
-const startConsumer = async (definition: ConsumerQueue, handler: (envelope: Envelope) => Promise<void>) => {
+const startConsumer = async (
+  definition: ConsumerQueue,
+  handler: (envelope: Envelope, unit?: string) => Promise<void>,
+  unitsOf?: (envelope: Envelope) => readonly string[],
+) => {
   const channel = await broker.connection.createChannel();
-  const consumer = new Consumer(database.db, channel, { definition, handler, validate, classify });
+  const consumer = new Consumer(new KyselyTransactionRunner(database.db), channel, {
+    definition,
+    handler: (envelope, _trx, unit) => handler(envelope, unit),
+    validate,
+    classify,
+    ...(unitsOf ? { unitsOf } : {}),
+  });
   await consumer.start();
   consumers.push(consumer);
 };
@@ -183,5 +194,32 @@ describe('Consumer', () => {
     expect(attempts).toBe(2);
     const inbox = await database.db.selectFrom('inbox').selectAll().where('consumer', '=', definition.queue).execute();
     expect(inbox).toHaveLength(1);
+  });
+
+  test('Should commit each unit in its own transaction and not reapply a committed unit on retry', async () => {
+    // Given
+    const definition = await queueBoundToTestExchange('units.#');
+    const applied: string[] = [];
+    let sellerAttempts = 0;
+    await startConsumer(
+      definition,
+      async (_envelope, unit) => {
+        if (unit === 'seller') {
+          sellerAttempts += 1;
+          if (sellerAttempts === 1) throw new TransientFailure('seller wallet locked');
+        }
+        applied.push(String(unit));
+      },
+      () => ['buyer', 'seller'],
+    );
+
+    // When
+    broker.channel.publish(broker.exchange, 'units.event', Buffer.from(JSON.stringify(envelopeOf())));
+    await waitUntil(() => applied.includes('seller'));
+
+    // Then
+    expect(applied).toEqual(['buyer', 'seller']);
+    const keys = await database.db.selectFrom('inbox').select('message_key').where('consumer', '=', definition.queue).execute();
+    expect(keys.map((row) => row.message_key.split(':')[1]).sort()).toEqual(['buyer', 'seller']);
   });
 });

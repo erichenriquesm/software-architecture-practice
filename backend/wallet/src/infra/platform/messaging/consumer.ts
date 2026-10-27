@@ -1,5 +1,6 @@
-import type { Kysely, Transaction } from 'kysely';
+import type { Transaction } from 'kysely';
 import type { Database } from '../../adapters/outbound/persistence/database.js';
+import type { KyselyTransactionRunner } from '../persistence/transactions.js';
 import type { RetryPolicy } from '../resilience/retry.js';
 import { retry } from '../resilience/retry.js';
 import type { AmqpConnection } from './connection.js';
@@ -13,7 +14,7 @@ type Message = NonNullable<Parameters<Parameters<Channel['consume']>[1]>[0]>;
 
 export type FailureKind = 'transient' | 'permanent';
 
-export type MessageHandler = (envelope: Envelope, trx: Transaction<Database>) => Promise<void>;
+export type MessageHandler = (envelope: Envelope, trx: Transaction<Database>, unit?: string) => Promise<void>;
 
 export interface ConsumerOptions {
   readonly definition: ConsumerQueue;
@@ -22,6 +23,7 @@ export interface ConsumerOptions {
   readonly classify: (error: unknown) => FailureKind;
   readonly inProcessRetry?: RetryPolicy;
   readonly prefetch?: number;
+  readonly unitsOf?: (envelope: Envelope) => readonly string[];
 }
 
 const attemptOf = (message: Message): number => Number(message.properties.headers?.['x-attempt'] ?? 0);
@@ -41,7 +43,7 @@ export class Consumer {
   private consumerTag: string | undefined;
 
   constructor(
-    private readonly db: Kysely<Database>,
+    private readonly runner: KyselyTransactionRunner<Database>,
     private readonly channel: Channel,
     private readonly options: ConsumerOptions,
   ) {}
@@ -77,11 +79,18 @@ export class Consumer {
 
   private async process(message: Message): Promise<void> {
     const envelope = this.options.validate(JSON.parse(message.content.toString()));
-    const run = () =>
-      this.db.transaction().execute(async (trx) => {
-        const firstTime = await markProcessed(trx, this.queue, envelope.eventId);
-        if (firstTime) await this.options.handler(envelope, trx);
+    const runUnit = (unit?: string) =>
+      this.runner.run(async () => {
+        const trx = this.runner.transaction();
+        const messageKey = unit === undefined ? envelope.eventId : `${envelope.eventId}:${unit}`;
+        const firstTime = await markProcessed(trx, this.queue, messageKey);
+        if (firstTime) await this.options.handler(envelope, trx, unit);
       });
+    const run = async () => {
+      const units = this.options.unitsOf?.(envelope);
+      if (!units) return runUnit();
+      for (const unit of units) await runUnit(unit);
+    };
     if (this.options.definition.retryMode !== 'inProcess') return run();
     return retry(run, this.options.inProcessRetry ?? { baseMs: 200, capMs: 10_000, maxAttempts: Infinity }, {
       isTransient: (error) => this.options.classify(error) === 'transient',
