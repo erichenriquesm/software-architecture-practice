@@ -61,7 +61,7 @@ Regras:
 1. **Um caso de uso não sabe por qual adapter foi chamado.** O mesmo `ReserveFunds` poderia ser chamado por HTTP ou por fila sem mudar uma linha.
 2. **A ACL também existe na entrada:** o evento de outro contexto é traduzido pelo consumer antes de chegar ao caso de uso. Payload externo nunca entra em `application/`.
 3. **A corrente de fallback é um adapter composto** que implementa a mesma porta do gateway. O caso de uso vê uma porta só (`WalletGateway`), não a corrente.
-4. **`libs/` fornece a base técnica dos adapters** (consumer com retry/DLQ, relay do outbox, cliente gRPC com deadline e retry, `FallbackHandler`). Cada serviço escreve só a parte específica: o mapeamento e a ACL.
+4. **`src/infra/platform/` tem a base técnica dos adapters** (consumer com retry/DLQ, relay do outbox, cliente gRPC com deadline e retry, `FallbackHandler`), copiada do `service-template` (§6). Cada serviço escreve só a parte específica: o mapeamento e a ACL.
 5. **Teste:** caso de uso com fakes das portas (unidade); adapter contra a tecnologia real (integração).
 
 ### Quando criar uma porta (interface)
@@ -153,7 +153,7 @@ Event-driven não vale só entre serviços: vale **dentro** do serviço. Se o ca
 | | Evento de domínio | Evento de integração |
 |---|---|---|
 | Nome | Classe no passado: `OrderAccepted`, `FundsReserved` | Tipo do contrato: `order.accepted`, `wallet.fundsReserved` |
-| Onde vive | `domain/events.ts` do serviço | `backend/contracts/events/` (Published Language) |
+| Onde vive | `domain/events.ts` do serviço | `contracts/published/events/` do serviço produtor; cópias em `contracts/consumed/` dos consumidores (Published Language, §6) |
 | Conteúdo | Pode carregar VOs e detalhes internos | Só primitivos e strings decimais, versionado |
 | Alcance | **Só dentro do serviço** | Outros serviços (e o próprio serviço, quando a reação é em outra transação) |
 | Quem converte | — | `IntegrationEventMapper`, adapter de saída da mensageria |
@@ -341,7 +341,7 @@ infra/adapters/outbound/gateways/wallet/walletAcl.ts          ← ACL: traduz o 
 
 Decisão para esta plataforma:
 - **API pública: REST.** Exatamente os endpoints do objetivo, roteados pelo edge proxy.
-- **Síncrono interno: gRPC.** Os `.proto` ficam em `backend/contracts/proto/` (Published Language, como os eventos). O código é gerado (`ts-proto`) **uma vez**, no pacote `backend/contracts/generated/`, e cliente e servidor importam o mesmo código: os dois lados nunca divergem. Só os adapters da `infra` importam esse pacote; a ACL traduz a mensagem gerada para os tipos do meu contexto.
+- **Síncrono interno: gRPC.** O `.proto` é do serviço que expõe o método (`contracts/published/proto/`); quem chama guarda uma cópia (`contracts/consumed/proto/`), verificada pelo `scripts/check-contracts` (§6). Cada serviço gera o próprio código TypeScript (`ts-proto`) a partir do `.proto` que tem. Só os adapters da `infra` importam o código gerado; a ACL traduz a mensagem gerada para os tipos do meu contexto.
 - **Assíncrono: RabbitMQ** (ver [mensageria](03-mensageria.md)). gRPC não substitui evento: se o chamador não precisa da resposta na hora, é evento.
 - **Health check e métricas: HTTP simples** (`/health`, `/metrics`), porque é o que o Docker e as ferramentas de observabilidade esperam.
 - **Fora do escopo:** gRPC no browser (gRPC-Web) e streaming. Se surgir depth em tempo real para o front, o caminho é WebSocket/SSE no `market-data`, não gRPC.
@@ -368,7 +368,7 @@ Toda chamada de rede tem timeout explícito. Padrão para chamada interna (deadl
 - **Só é seguro repetir operação idempotente.** Toda escrita disparada por mensagem é idempotente via inbox.
 
 ### 5.3 Fallback com Chain of Responsibility
-Quando há mais de uma forma de obter um resultado, os elos formam uma corrente: cada elo tenta, e se falhar repassa ao próximo. A base fica em `libs/resilience`.
+Quando há mais de uma forma de obter um resultado, os elos formam uma corrente: cada elo tenta, e se falhar repassa ao próximo. A base fica em `src/infra/platform/resilience/` de cada serviço.
 
 ```ts
 abstract class FallbackHandler<I, O> {
@@ -392,7 +392,7 @@ O último elo é sempre **explícito**: ou degrada com aviso, ou falha com erro 
 
 ### 5.4 Idempotência
 - Consumidores: tabela **inbox** (`consumer` + `message_key`, ver [mensageria §5](03-mensageria.md#inbox-consumidor)) na mesma transação do efeito.
-- **Todo POST público** aceita o header `Idempotency-Key`, com o comportamento da Stripe: a primeira resposta (status + corpo) é guardada por pelo menos 24 h e devolvida igual nas repetições; a mesma chave com outro corpo → `422`. Implementado uma vez em `libs/http` (ver [Q13](99-decisoes.md#q13)).
+- **Todo POST público** aceita o header `Idempotency-Key`, com o comportamento da Stripe: a primeira resposta (status + corpo) é guardada por pelo menos 24 h e devolvida igual nas repetições; a mesma chave com outro corpo → `422`. Implementado em `src/infra/platform/http/` de cada serviço (vem do template).md#q13)).
 
 ### 5.5 Circuit breaker
 Fora do MVP. Os gateways nascem com uma interface que permite adicionar depois sem mexer nos casos de uso.
@@ -405,23 +405,43 @@ Ao receber `SIGTERM`: parar de consumir, terminar a mensagem em andamento, dar `
 
 ---
 
-## 6. Código compartilhado
+## 6. Código compartilhado (não há)
 
-Monorepo com **npm workspaces**, com raiz em `backend/package.json` (a raiz do repositório não tem código). Cada serviço continua sendo implantável sozinho.
+**Nenhum código é compartilhado entre serviços.** Cada `backend/<svc>/` é um projeto standalone e precisa poder virar um repositório próprio só copiando a pasta.
+
+| O quê | Onde fica | Como chega a um serviço novo |
+|---|---|---|
+| Domínio | `src/domain/` do serviço | Escrito pelo serviço. Nunca é compartilhado: `Quantity` de `wallet` e de `matching` são classes separadas |
+| **Requisitos não funcionais** (retry, timeout, `FallbackHandler`, outbox, inbox, consumer com retry/DLQ, rate limit, `Idempotency-Key`, mTLS + allowlist, leitura de segredos) | **`src/infra/platform/`** do serviço: `resilience/`, `messaging/`, `http/`, `security/` | **Copiado do `service-template`** pelo `scaffold`. A partir daí é código do serviço |
+| Helpers de teste (bancos e broker efêmeros, CA de teste, fakes gRPC/HTTP, fixtures) | **`test/support/`** do serviço | Copiado do template, como acima |
+| Contratos | `contracts/` do serviço (ver abaixo) | O produtor é dono; o consumidor guarda cópia |
+| Regras de lint e de arquitetura | `eslint.config.mjs` e `.dependency-cruiser.cjs` do serviço | Copiadas do template |
+
+**Regra de independência.** Um serviço:
+- **nunca** importa nada fora da própria pasta (`../` é proibido e o teste de arquitetura quebra se acontecer);
+- tem `package.json` e `package-lock.json` próprios, e um `Dockerfile` cujo contexto de build é só a pasta dele;
+- depende da infraestrutura compartilhada (RabbitMQ, Redis, edge, `security-init`) só pela rede `trading-net` e pelos nomes DNS, nunca por arquivo.
+
+**Trade-off aceito.** Uma correção num RNF precisa ser replicada em cada serviço que tem aquele código. Em troca, não existe registro de pacotes, versão para publicar nem serviço arrastando outro numa atualização. O `service-template` é sempre a versão mais nova do kit; serviços antigos adotam uma correção quando quiserem.
+
+### Contratos: o produtor é dono, o consumidor guarda cópia
 
 ```
-backend/
-  contracts/   ← Published Language, versionada: JSON Schemas dos eventos (events/) e .proto do gRPC interno (proto/), e markets.json (catálogo de mercados com filtros)
-  libs/
-    messaging/   ← envelope, publisher com confirms, consumer com retry/DLQ, outbox relay, inbox
-    resilience/  ← retry com backoff+jitter, FallbackHandler, timeout
-    http/        ← plugins de Idempotency-Key e rate limit, tradução de erro de domínio → status HTTP
-    security/    ← credenciais mTLS do gRPC, interceptor de allowlist, leitura de segredos *_FILE, verificação do JWT interno (futuro)
-    testing/     ← banco/broker/Redis efêmeros por worker, CA efêmera para mTLS, fakes de serviço (startFakeGrpcServer, startFakeHttpServer), fixtures dos contratos
+backend/account/contracts/
+  published/events/account.created.v1.schema.json   ← dono: account
+  published/proto/account.proto                     ← dono: account (servidor gRPC)
+  consumed/events/wallet.balanceChanged.v1.schema.json ← cópia do que account consome
+  consumed/proto/wallet.proto                       ← cópia do que account chama
+  envelope.schema.json                              ← cópia do envelope comum
+  markets.json                                      ← cópia do catálogo, se o serviço usa
 ```
 
-- `libs/` é **só técnico**. Se aparecer regra de negócio, está no lugar errado.
-- **Domínio nunca é compartilhado.** `Quantity` de `wallet` e `Quantity` de `matching` podem ser parecidos e mesmo assim são classes separadas: cada contexto evolui sozinho.
+- **Quem publica um evento ou expõe um `.proto` é o dono** e guarda o original em `contracts/published/`.
+- **Quem consome guarda uma cópia** em `contracts/consumed/`, e é contra ela que roda os testes de contrato.
+- O código TypeScript do gRPC é gerado **dentro de cada serviço** (`ts-proto`), a partir do `.proto` que ele tem (o próprio, se for servidor; a cópia, se for cliente).
+- **`scripts/check-contracts`** (container) compara cada cópia com o original do dono e falha se divergirem. Hoje, com tudo no mesmo repositório, isso basta; quando os serviços virarem repositórios separados, a cópia passa a vir de um registro de contratos, e a regra continua a mesma.
+- O envelope e o `markets.json` não têm um serviço dono: o original fica em `backend/infra/contracts/`, e cada serviço guarda uma cópia, verificada pelo mesmo script.
+- A evolução segue a regra da [mensageria §2](03-mensageria.md#2-envelope): mudança compatível mantém a versão; incompatível cria `v2`, e o produtor publica as duas até os consumidores migrarem.
 
 ---
 
@@ -444,14 +464,14 @@ Pirâmide: regra específica é testada no nível mais baixo possível. Detalhes
 
 | Item | Escolha | Motivo |
 |---|---|---|
-| Linguagem | TypeScript (strict) **fixado em `~6.0.3`**, Node 26 | Um ecossistema só para serviços, libs e testes. A versão é fixada porque `typescript-eslint`, `dependency-cruiser` e `kysely-codegen` ainda exigem TypeScript < 6.1 |
+| Linguagem | TypeScript (strict) **fixado em `~6.0.3`**, Node 26 | Um ecossistema só para serviços, scripts e testes. A versão é fixada porque `typescript-eslint`, `dependency-cruiser` e `kysely-codegen` ainda exigem TypeScript < 6.1 |
 | HTTP (API pública) | Fastify | Leve, schema de validação nativo |
-| RPC interno | `@grpc/grpc-js` + `ts-proto` | Contrato tipado gerado a partir de `contracts/proto` |
+| RPC interno | `@grpc/grpc-js` + `ts-proto` | Contrato tipado gerado, em cada serviço, a partir do `.proto` que ele tem em `contracts/` |
 | Acesso ao Postgres | **Kysely** (query builder tipado) sobre o driver `pg` | Não é ORM: o domínio não ganha decorators nem classes de entidade, e o Repository mapeia linha ↔ agregado à mão. Cobre o que a spec exige: `FOR UPDATE SKIP LOCKED` (relay do outbox), `ON CONFLICT` (projeções), transação explícita, `GROUP BY` e agregações tipadas nos DAOs, e `sql` para o que faltar (ex.: `pg_advisory_lock`) |
 | Tipos do banco | `kysely-codegen`, gerado do banco já migrado e versionado em `infra/adapters/outbound/persistence/database.ts` | O tipo vem do schema real, não de uma cópia escrita à mão |
 | `numeric` | Lido como **string** e convertido para `decimal.js` no mapeamento | Nunca passa por `number`: não perde casas |
 | Migrações | Arquivos **SQL** versionados (`migrations/0001_*.sql`), aplicados em ordem pelo container `migrate` com o `Migrator` do Kysely (`kysely/migration`). Todas as migrações pendentes rodam **numa única transação**: ou todas entram, ou nenhuma. Por isso não se usa `CREATE INDEX CONCURRENTLY` | SQL legível e auditável; o Kysely só controla o que já foi aplicado |
-| RabbitMQ | `amqplib` encapsulado em `libs/messaging` | |
+| RabbitMQ | `amqplib` encapsulado em `src/infra/platform/messaging/` | |
 | Decimal | `decimal.js` | Dinheiro sem erro de ponto flutuante |
 | Testes | Vitest | Já usado no projeto |
 | Validação de borda | JSON Schema (o mesmo de `contracts/`) | Uma fonte da verdade para contrato |

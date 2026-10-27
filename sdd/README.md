@@ -45,13 +45,14 @@
 14. **Convenções:** casos de uso com `XxxInput`/`XxxOutput`, camelCase, Object Calisthenics no domínio, comentários em inglês e só em último caso, e um caso de uso nunca chama outro (comunicação por evento também dentro do serviço).
 15. **Testes repetíveis:** tempo, id e aleatoriedade controlados, infraestrutura efêmera por worker, rede de teste isolada e **fake de rede** (gRPC/HTTP) para qualquer outro microserviço. Só o E2E sobe os serviços de verdade.
 16. **Autenticação entre serviços:** mTLS no gRPC com allowlist por método; usuário próprio, com o mínimo de permissão, no RabbitMQ, no Postgres (migração separada da execução) e no Redis; segredos gerados por um container e nunca no compose. JWT só para a identidade do usuário, quando o login existir.
-17. **Tudo em Docker**: compose por backend, rede `bridge` única (`trading-net`) com DNS por nome, sem IP em `.env`, e desenvolvimento com Compose Watch (alterar código não exige rebuild).
+17. **Serviços independentes:** cada `backend/<svc>/` é um projeto standalone (lockfile e Dockerfile próprios, nada de `../`), que pode virar repositório próprio. **Nenhum código é compartilhado**: os RNF (retry, outbox, rate limit, mTLS…) vêm do `service-template` para `src/infra/platform/` de cada serviço, e os contratos têm dono (o produtor) e cópias nos consumidores, verificadas por `scripts/check-contracts`.
+18. **Tudo em Docker**: compose por backend, rede `bridge` única (`trading-net`) com DNS por nome, sem IP em `.env`, e desenvolvimento com Compose Watch (alterar código não exige rebuild).
 
 ## Roteiro (esboço para a fase de plano)
 
 | Fase | Entrega |
 |---|---|
-| 0 | Fundação: **apagar o experimento da raiz** ([Q15](99-decisoes.md#q15)), raiz só com `backend/` e `frontend/`, monorepo em `backend/` (npm workspaces), `infra/` (RabbitMQ, edge, `trading-net`), `contracts/`, `libs/messaging` e `libs/resilience`, teste de arquitetura |
+| 0 | Fundação: **apagar o experimento da raiz** ([Q15](99-decisoes.md#q15)), raiz só com `backend/`, `frontend/` e `sdd/`; `infra/` (security-init, RabbitMQ, Redis, edge, `trading-net`, contratos sem dono); `service-template/` standalone com os RNF em `src/infra/platform/` e `test/support/`; `scripts/` (scaffold, check-contracts); teste de arquitetura no template |
 | 1 | `account` |
 | 2 | `wallet` |
 | 3 | `order` |

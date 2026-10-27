@@ -8,34 +8,47 @@
 
 ```
 /
-  backend/     ← todos os microserviços, contratos, libs e infra local (este documento)
+  backend/     ← todos os microserviços e a infra local (este documento)
   frontend/    ← cliente web (fora do escopo desta spec por enquanto)
   sdd/         ← specs
   .gitignore
 ```
 
-Nada de código, `package.json` ou `Dockerfile` na raiz. O que existe hoje na raiz é experimento e é apagado no início da fase 0 ([Q15](99-decisoes.md#q15)). Cada pasta de topo é independente: `backend/` tem seu próprio `package.json` (raiz dos npm workspaces), e `frontend/` terá o dele.
+Nada de código, `package.json` ou `Dockerfile` na raiz. O que existe hoje na raiz é experimento e é apagado no início da fase 0 ([Q15](99-decisoes.md#q15)). Cada pasta de topo é independente. Dentro de `backend/`, cada serviço tem o próprio `package.json`; não há workspace nem `package.json` na raiz do `backend/`.
 
 ## 1. Estrutura do `backend/`
 
 ```
 backend/
-  package.json                ← raiz dos npm workspaces (libs, contracts e serviços)
-  tsconfig.base.json
   docker-compose.yml          ← sobe a plataforma inteira (include de todos os composes)
-  infra/
+  docker-compose.runtime.yml  ← override com as imagens finais (E2E)
+  infra/                      ← infraestrutura compartilhada; nenhum código de serviço
     docker-compose.yml        ← security-init + RabbitMQ único + Redis + edge proxy + rede trading-net
     security/                 ← imagem do security-init (CA, certificados, senhas, definitions.json, users.acl)
+    rabbitmq/                 ← configuração do broker
     edge/nginx.conf           ← roteamento REST público → serviços
-  contracts/                  ← events/*.schema.json, proto/*.proto, markets.json
-  libs/                       ← messaging, resilience, http, security, testing
-  service-template/           ← serviço mínimo funcional e testado; base de todo serviço novo
-  scripts/scaffold.ts         ← npm run scaffold -- <svc>: copia o template e troca os nomes
-  account/
+    contracts/                ← originais sem dono: envelope.schema.json, markets.json (+ schema)
+    verify/                   ← testes da própria infra (projeto standalone pequeno)
+  scripts/                    ← só biblioteca padrão do Node, rodados em container
+    check-root-layout.sh
+    scaffold.ts               ← copia o service-template para backend/<svc>/ e troca os nomes
+    check-contracts.ts        ← compara cada cópia de contrato com o original do dono
+  service-template/           ← serviço standalone mínimo e testado; base de todo serviço novo
+  account/                    ← projeto STANDALONE (pode virar repositório próprio)
+    package.json  package-lock.json
+    tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
     docker-compose.yml        ← account-api, account-worker, account-migrate, account-db
-    Dockerfile
-    src/ (domain, application, infra)
+    docker-compose.runtime.yml
+    Dockerfile                ← contexto de build = esta pasta
+    contracts/                ← published/ (dono) e consumed/ (cópias), envelope, markets.json
     migrations/
+    src/
+      domain/  application/
+      infra/
+        adapters/             ← inbound/outbound do serviço
+        platform/             ← RNF copiados do template: resilience/, messaging/, http/, security/
+        main/                 ← api.ts, worker.ts, migrate.ts
+    test/support/             ← helpers de teste copiados do template
   wallet/       (mesma estrutura)
   order/        (mesma estrutura)
   matching/     (mesma estrutura, sem api pública)
@@ -137,11 +150,10 @@ services:
   wallet-api:
     container_name: wallet-api
     build:
-      context: ..                       # backend/ (workspace root)
-      dockerfile: wallet/Dockerfile
+      context: .                        # the service folder only
       target: dev
-    working_dir: /app/wallet
-    command: sh -c "npm run proto:gen -w contracts && npx tsx watch src/infra/main/api.ts"
+    working_dir: /app
+    command: sh -c "npm run proto:gen && npx tsx watch src/infra/main/api.ts"
     environment:
       DATABASE_HOST: wallet-db
       DATABASE_NAME: wallet
@@ -165,24 +177,17 @@ services:
       watch:
         - action: sync                  # own code: hot reload via tsx watch
           path: ./src
-          target: /app/wallet/src
-        - action: sync                  # shared technical libs
-          path: ../libs
-          target: /app/libs
-          ignore: [node_modules/]
-        - action: sync                  # event JSON Schemas and markets.json
-          path: ../contracts
+          target: /app/src
+        - action: sync+restart          # contracts: restart regenerates the gRPC code
+          path: ./contracts
           target: /app/contracts
-        - action: sync+restart          # .proto: restart regenerates contracts/generated
-          path: ../contracts/proto
-          target: /app/contracts/proto
         - action: sync                  # new migrations, applied by re-running wallet-migrate
           path: ./migrations
-          target: /app/wallet/migrations
+          target: /app/migrations
         - action: rebuild               # dependencies changed
           path: ./package.json
         - action: rebuild
-          path: ../package-lock.json
+          path: ./package-lock.json
         - action: rebuild
           path: ./Dockerfile
 ```
@@ -194,13 +199,11 @@ O `wallet-worker` tem o mesmo bloco `develop.watch`, com `command` apontando par
 | Alteração | Precisa rebuild? | O que acontece |
 |---|---|---|
 | Código do serviço (`src/`) | **Não** | `sync` → `tsx watch` reinicia em ~1 s |
-| `libs/` | **Não** | `sync` → reinício de todos os serviços que usam a lib |
-| JSON Schema de evento, `markets.json` | **Não** | `sync` → reinício |
-| `.proto` | **Não** | `sync+restart` → o comando regenera `contracts/generated/` e sobe |
+| `contracts/` do serviço (inclusive `.proto`) | **Não** | `sync+restart` → o comando regenera o código do gRPC e sobe |
 | Nova migração | **Não** | `sync` + `docker compose run --rm wallet-migrate` |
 | Variável de ambiente no compose | **Não** | `docker compose up -d` recria só o container, com a mesma imagem |
 | Teste | **Não** | `docker compose exec wallet-api npx vitest` (modo watch) |
-| `package.json` / `package-lock.json` | Sim | `rebuild` automático pelo watch |
+| `package.json` / `package-lock.json` do serviço | Sim | `rebuild` automático pelo watch |
 | `Dockerfile` | Sim | `rebuild` automático pelo watch |
 
 Subir em modo desenvolvimento:
@@ -260,9 +263,9 @@ docker compose -f backend/wallet/docker-compose.yml up --watch
 
 Multi-stage, com testes de unidade dentro do build:
 
-1. **deps** — `npm ci` com devDependencies (workspace: `libs/` e `contracts/` entram aqui).
+1. **deps** — `npm ci` com devDependencies, a partir do `package.json` e do `package-lock.json` **do serviço**. O contexto de build é só a pasta do serviço: nada de fora dela entra na imagem.
 2. **dev** — `deps` + código-fonte + `tsx`. É o alvo do `docker-compose.yml`: o código é atualizado pelo Compose Watch, sem rebuild (§3.1). Roda como **root**, porque gera arquivos (código do protobuf, arquivos temporários do Vitest) em diretórios criados pela camada `deps`. Só a imagem final é não-root.
-3. **build** — gera `contracts/generated/` a partir dos `.proto`, compila e **roda os testes de unidade**. Teste vermelho = imagem não é gerada.
+3. **build** — gera o código do gRPC (`src/infra/generated/`) a partir dos `.proto` de `contracts/`, compila e **roda os testes de unidade**. Teste vermelho = imagem não é gerada.
 4. **runtime** — `node:26-alpine`, só dependências de produção e `dist/`. Usuário não-root (`node`, uid 1000), coberto pelo E2E. Alvo do `docker-compose.runtime.yml` (§3.2).
 
 Testes de integração **não** rodam no build, porque precisam de Postgres/RabbitMQ. Eles rodam no perfil `test` do compose (ver [testes](05-estrategia-de-testes.md#5-como-rodar)).
@@ -343,7 +346,7 @@ Testes de integração **não** rodam no build, porque precisam de Postgres/Rabb
 3. **Microcache**: no **CloudFront**, crie um comportamento para `/markets/*` com TTL de 1 s. As demais rotas passam sem cache.
 4. **Ataque volumétrico**: o **Shield Standard** vem com o CloudFront. Avalie o **Shield Advanced** se houver exigência de proteção contratada.
 
-O rate limit **por conta** e o bloqueio escalonado **não** vão para a borda: continuam no plugin de `libs/http`, porque a borda enxerga IP e API key, não o `accountId` que vem no corpo.
+O rate limit **por conta** e o bloqueio escalonado **não** vão para a borda: continuam no plugin de rate limit de cada serviço (`src/infra/platform/http/`), porque a borda enxerga IP e API key, não o `accountId` que vem no corpo.
 
 **Passo 8 — Observabilidade**
 1. Envie os logs de todos os processos para o **CloudWatch Logs**. O `correlationId` continua em toda linha.

@@ -42,9 +42,9 @@ Proporção-alvo em número de testes: **~70% unidade · ~20% integração · ~7
 **Não** retestar regra de negócio aqui.
 
 ### Contrato
-- **Produtor**: todo evento que o serviço publica valida contra `contracts/events/<evento>.schema.json`.
+- **Produtor**: todo evento que o serviço publica valida contra o schema dele em `contracts/published/events/`.
 - **Consumidor**: fixtures geradas a partir dos schemas são aceitas pelos handlers.
-- **gRPC**: o serviço implementa o `.proto` de `contracts/proto` (garantido pela geração de código) e o cliente é testado contra o mesmo `.proto`.
+- **gRPC**: o servidor implementa o `.proto` de `contracts/published/proto/` (garantido pela geração de código) e o cliente é testado contra a cópia em `contracts/consumed/proto/`. O `scripts/check-contracts` garante que cópia e original são iguais.
 - Mudança incompatível de contrato quebra esses testes antes de quebrar a produção.
 
 ### E2E — poucos, caminhos críticos
@@ -82,8 +82,8 @@ Quando o código sob teste depende de outro serviço, o teste sobe um **fake de 
 
 | Dependência | Fake | Fornecido por |
 |---|---|---|
-| gRPC interno (`AccountService`, `WalletService`) | `startFakeGrpcServer(proto, handlers)`: servidor `@grpc/grpc-js` na porta `0` (porta livre aleatória), gerado do mesmo `.proto` de `contracts/proto`, **com mTLS** e certificados de uma CA efêmera criada por execução ([autenticação §7](08-autenticacao-entre-servicos.md#7-testes)) | `libs/testing` |
-| HTTP externo (se surgir: provedor de identidade, gateway de pagamento…) | `startFakeHttpServer(routes)`: instância Fastify na porta `0` | `libs/testing` |
+| gRPC interno (`AccountService`, `WalletService`) | `startFakeGrpcServer(proto, handlers)`: servidor `@grpc/grpc-js` na porta `0` (porta livre aleatória), gerado do mesmo `.proto` que o serviço tem em `contracts/`, **com mTLS** e certificados de uma CA efêmera criada por execução ([autenticação §7](08-autenticacao-entre-servicos.md#7-testes)) | `test/support/` do serviço |
+| HTTP externo (se surgir: provedor de identidade, gateway de pagamento…) | `startFakeHttpServer(routes)`: instância Fastify na porta `0` | `test/support/` do serviço |
 
 O fake é **programável por cenário**, e cada cenário é determinístico:
 

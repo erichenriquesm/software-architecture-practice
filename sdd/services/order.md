@@ -21,7 +21,7 @@ HTTP de escrita (criar/cancelar) e de leitura (histórico), mais uma máquina de
 
 | Value Object | Regra |
 |---|---|
-| `MarketId` | Formato `BASE-QUOTE` e presente no catálogo `contracts/markets.json` ([Q5](../99-decisoes.md#q5)) |
+| `MarketId` | Formato `BASE-QUOTE` e presente no catálogo `contracts/markets.json` (cópia do original da infra) ([Q5](../99-decisoes.md#q5)) |
 | `Side` | `buy` \| `sell` |
 | `Quantity`, `Price` | `> 0`, decimal, escala 8 |
 | `MarketFilters` | Do catálogo. **Preço múltiplo do tick** (`0.01`), **quantidade múltipla do step** (`0.00001`), **`qty × price ≥ minNotional`** (`5 USD`). Fora do filtro → rejeita, nunca arredonda ([Q11](../99-decisoes.md#q11)). |

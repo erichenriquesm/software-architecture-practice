@@ -27,7 +27,7 @@ Cada serviço conecta com **usuário próprio**, e as permissões do broker refo
 | `wallet.events` | topic | `wallet` |
 | `order.events` | topic | `order` |
 | `matching.events` | topic | `matching` |
-| `retry` | direct | Infra comum de retry: criada pelo `definitions.json`; usada por `libs/messaging` |
+| `retry` | direct | Infra comum de retry: criada pelo `definitions.json`; usada pelo kit de mensageria de cada serviço (`src/infra/platform/messaging/`) |
 
 `market-data` não publica eventos.
 
@@ -60,7 +60,7 @@ Configuração padrão de fila: `durable`, `x-queue-type: quorum`, mensagens `pe
 
 ## 2. Envelope
 
-Toda mensagem tem o mesmo envelope (schema em `backend/contracts/envelope.schema.json`):
+Toda mensagem tem o mesmo envelope (schema `envelope.schema.json`: original em `backend/infra/contracts/`, cópia em cada serviço):
 
 ```json
 {
@@ -121,7 +121,7 @@ Com deltas (`orderRested`, `levelChanged`), o `market-data` teria que reconstrui
 
 ### Retry por filas com atraso (backoff exponencial)
 
-Para cada fila `<q>` (exceto a do `matching`, ver §6), `libs/messaging` declara:
+Para cada fila `<q>` (exceto a do `matching`, ver §6), o kit de mensageria do serviço (`src/infra/platform/messaging/`) declara:
 
 ```
 <q>            ligada à exchange retry com a chave <q>

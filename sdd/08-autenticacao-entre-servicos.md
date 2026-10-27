@@ -35,10 +35,10 @@ Tudo é gerado **dentro de container**, como manda a regra de Docker ([princípi
 - Servidor e cliente apresentam certificado e verificam o do outro contra a CA local. Sem certificado válido, a conexão nem abre.
 - O cliente confere se o certificado do servidor tem o nome que ele chamou (`account-api`). Isso impede que outro container se passe pelo serviço.
 - O servidor extrai a **identidade do chamador** do certificado (o nome no SAN, ex.: `wallet-api` → serviço `wallet`).
-- Implementado uma vez em `libs/security`: credenciais do cliente e do servidor `@grpc/grpc-js` a partir dos arquivos de `/run/secrets/`.
+- Implementado em `src/infra/platform/security/` de cada serviço (vem do template): credenciais do cliente e do servidor `@grpc/grpc-js` a partir dos arquivos de `/run/secrets/`.
 
 ### 2.2 Allowlist por serviço
-Cada servidor gRPC declara **quem pode chamar cada método**. A checagem é um interceptor de `libs/security`, que roda **antes** do handler, no adapter de entrada.
+Cada servidor gRPC declara **quem pode chamar cada método**. A checagem é um interceptor de `src/infra/platform/security/`, que roda **antes** do handler, no adapter de entrada.
 
 | Servidor | Método | Quem pode chamar |
 |---|---|---|
@@ -141,5 +141,5 @@ Seguem as regras de repetibilidade ([testes §3](05-estrategia-de-testes.md#3-re
 | Nível | Casos |
 |---|---|
 | Unidade | Allowlist: chamador permitido, chamador negado, método sem entrada (negado por padrão) · extração da identidade a partir do SAN · validação da configuração na inicialização |
-| Integração | `libs/testing` gera uma **CA efêmera por execução** e certificados de teste. O fake gRPC (`startFakeGrpcServer`) também exige mTLS. Casos: cliente sem certificado não conecta · certificado de outra CA é recusado · chamador fora da allowlist recebe `PERMISSION_DENIED` e o gateway não faz retry · no broker de teste, publicar na exchange de outro contexto dá `ACCESS_REFUSED` · usuário `<svc>_app` não consegue `ALTER TABLE` · usuário Redis não lê chave de outro prefixo |
+| Integração | O `test/support/` do serviço gera uma **CA efêmera por execução** e certificados de teste. O fake gRPC (`startFakeGrpcServer`) também exige mTLS. Casos: cliente sem certificado não conecta · certificado de outra CA é recusado · chamador fora da allowlist recebe `PERMISSION_DENIED` e o gateway não faz retry · no broker de teste, publicar na exchange de outro contexto dá `ACCESS_REFUSED` · usuário `<svc>_app` não consegue `ALTER TABLE` · usuário Redis não lê chave de outro prefixo |
 | E2E | A plataforma sobe com o `security-init` e os caminhos críticos passam com mTLS ligado |

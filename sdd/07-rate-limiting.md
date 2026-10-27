@@ -11,7 +11,7 @@ Limites são definidos **por tipo de uso**, não um número único para tudo: le
 | Camada | Onde | Chave | Protege contra |
 |---|---|---|---|
 | **1. Edge** | `edge` (nginx), antes de qualquer serviço | **IP** | Inundação de requisições, conexões abertas demais, clientes lentos (slowloris), corpo gigante. Barra o grosso antes de gastar CPU dos serviços. |
-| **2. Serviço** | Plugin de rate limit em `libs/http`, em todo `api` | **Conta** (`accountId`) e **IP**, por grupo de endpoint | Abuso de quem está dentro do limite de IP (várias contas no mesmo IP, uma conta em vários IPs), brute force, excesso de ordens |
+| **2. Serviço** | Plugin de rate limit em `src/infra/platform/http/`, em todo `api` | **Conta** (`accountId`) e **IP**, por grupo de endpoint | Abuso de quem está dentro do limite de IP (várias contas no mesmo IP, uma conta em vários IPs), brute force, excesso de ordens |
 
 As duas camadas são necessárias: o edge não vê o `accountId` (ele vem no corpo, [Q4](99-decisoes.md#q4)), e o serviço não deve receber o tráfego que o edge já sabe que é abusivo.
 
