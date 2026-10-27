@@ -1,5 +1,5 @@
 FROM node:26-alpine AS deps
-RUN apk add --no-cache protobuf
+RUN apk add --no-cache protobuf openssl
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
