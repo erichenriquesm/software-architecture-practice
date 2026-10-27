@@ -1,0 +1,197 @@
+x-service-env: &service-env
+  SERVICE_NAME: service-template
+  DATABASE_HOST: service-template-db
+  DATABASE_NAME: service_template
+  DATABASE_USER: service_template_app
+  DATABASE_PASSWORD_FILE: /run/secrets/service-template-db-app-password
+
+x-watch: &watch
+  watch:
+    - action: sync
+      path: ./src
+      target: /app/src
+      ignore: [infra/generated/]
+    - action: sync+restart
+      path: ./contracts
+      target: /app/contracts
+    - action: sync
+      path: ./migrations
+      target: /app/migrations
+    - action: rebuild
+      path: ./package.json
+    - action: rebuild
+      path: ./package-lock.json
+    - action: rebuild
+      path: ./Dockerfile
+
+services:
+  service-template-db:
+    image: postgres:17-alpine
+    container_name: service-template-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/service-template-db-superuser-password
+      DATABASE_NAME: service_template
+      DATABASE_SCHEMA: service_template
+      DATABASE_MIGRATOR_USER: service_template_migrator
+      DATABASE_APP_USER: service_template_app
+      DATABASE_MIGRATOR_PASSWORD_FILE: /run/secrets/service-template-db-migrator-password
+      DATABASE_APP_PASSWORD_FILE: /run/secrets/service-template-db-app-password
+    volumes:
+      - service-template-db-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: service-template-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d service_template"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [trading-net]
+
+  service-template-migrate:
+    build: { context: ., target: dev }
+    container_name: service-template-migrate
+    command: ["npx", "tsx", "src/infra/main/migrate.ts"]
+    environment:
+      DATABASE_HOST: service-template-db
+      DATABASE_NAME: service_template
+      DATABASE_MIGRATOR_USER: service_template_migrator
+      DATABASE_MIGRATOR_PASSWORD_FILE: /run/secrets/service-template-db-migrator-password
+    volumes:
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: service-template-migrate
+    depends_on:
+      service-template-db:
+        condition: service_healthy
+    networks: [trading-net]
+
+  service-template-api:
+    build: { context: ., target: dev }
+    container_name: service-template-api
+    command: ["npx", "tsx", "watch", "src/infra/main/api.ts"]
+    environment:
+      <<: *service-env
+      HTTP_PORT: "3000"
+    ports:
+      - "127.0.0.1:3100:3000"
+    volumes:
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: service-template-api
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      service-template-migrate:
+        condition: service_completed_successfully
+    networks: [trading-net]
+    develop: *watch
+
+  service-template-worker:
+    build: { context: ., target: dev }
+    container_name: service-template-worker
+    command: ["npx", "tsx", "watch", "src/infra/main/worker.ts"]
+    environment:
+      <<: *service-env
+      HEALTH_PORT: "3001"
+    volumes:
+      - type: volume
+        source: trading-secrets
+        target: /run/secrets
+        read_only: true
+        volume:
+          subpath: service-template-worker
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      service-template-migrate:
+        condition: service_completed_successfully
+    networks: [trading-net]
+    develop: *watch
+
+  tests:
+    profiles: [test]
+    build: { context: ., target: dev }
+    command: ["npm", "run", "test:integration"]
+    environment:
+      TEST_DATABASE_URL: postgres://postgres:test@service-template-db-test:5432/postgres
+      TEST_RABBITMQ_URL: amqp://test:test@service-template-rabbitmq-test:5672
+      TEST_REDIS_URL: redis://service-template-redis-test:6379
+    depends_on:
+      service-template-db-test:
+        condition: service_healthy
+      service-template-rabbitmq-test:
+        condition: service_healthy
+      service-template-redis-test:
+        condition: service_healthy
+    networks: [service-template-test-net]
+
+  service-template-db-test:
+    profiles: [test]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [service-template-test-net]
+
+  service-template-rabbitmq-test:
+    profiles: [test]
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: test
+      RABBITMQ_DEFAULT_PASS: test
+    tmpfs: [/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 10s
+      retries: 40
+    networks: [service-template-test-net]
+
+  service-template-redis-test:
+    profiles: [test]
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [service-template-test-net]
+
+networks:
+  trading-net:
+    name: trading-net
+    driver: bridge
+  service-template-test-net:
+    name: service-template-test-net
+    driver: bridge
+    internal: true
+
+volumes:
+  trading-secrets:
+    name: trading-secrets
+  service-template-db-data:
+    name: service-template-db-data
