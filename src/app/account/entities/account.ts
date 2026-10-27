@@ -11,6 +11,14 @@ export default class Account {
         return new Account(name, email, phone, uuidv4());
     }
 
+    getAccount() {
+        return {
+            name: this.name,
+            email: this.email,
+            phone: this.phone
+        };
+    }
+
     getEmail() {
         return this.email.value;
     }
