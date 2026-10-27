@@ -1,0 +1,5 @@
+name: trading
+
+include:
+  - infra/docker-compose.yml
+  - service-template/docker-compose.yml

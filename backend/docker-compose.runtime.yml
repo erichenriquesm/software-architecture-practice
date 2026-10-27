@@ -1,0 +1,7 @@
+name: trading
+
+include:
+  - infra/docker-compose.yml
+  - path:
+      - service-template/docker-compose.yml
+      - service-template/docker-compose.runtime.yml
