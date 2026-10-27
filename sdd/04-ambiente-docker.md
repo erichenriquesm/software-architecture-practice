@@ -37,8 +37,10 @@ backend/
   account/                    ← projeto STANDALONE (pode virar repositório próprio)
     package.json  package-lock.json
     tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-    docker-compose.yml        ← account-api, account-worker, account-migrate, account-db
-    docker-compose.runtime.yml
+    docker-compose.yml        ← account-api, account-worker, account-migrate, account-db (sobe sozinho)
+    docker-compose.platform.yml ← só a ligação com a plataforma (ex.: o banco espera o security-init)
+    docker-compose.runtime.yml  ← imagens finais, sem Watch
+    docker-compose.test.yml     ← testes de integração com infra efêmera e rede isolada
     Dockerfile                ← contexto de build = esta pasta
     contracts/                ← published/ (dono) e consumed/ (cópias), envelope, markets.json
     migrations/
@@ -130,7 +132,7 @@ Todo serviço segue o mesmo molde. Exemplo `backend/wallet/docker-compose.yml`:
 | `wallet-api` | `tsx watch src/infra/main/api.ts` (REST + gRPC) | `wallet-migrate` concluído |
 | `wallet-worker` | `tsx watch src/infra/main/worker.ts` (consumidores + outbox relay) | `wallet-migrate` concluído, `rabbitmq` |
 
-O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1). A imagem de execução (sem watch, com `dist/`) vem do override `docker-compose.runtime.yml` (§3.2).
+O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e sobe sozinho, desde que a infraestrutura compartilhada já esteja de pé. O que só faz sentido dentro da plataforma (por exemplo, o banco esperar o `security-init` criar os segredos) fica em `docker-compose.platform.yml`, que o `backend/docker-compose.yml` inclui junto: `include: [{ path: [<svc>/docker-compose.yml, <svc>/docker-compose.platform.yml] }]`. A imagem de execução (sem watch, com `dist/`) vem do override `docker-compose.runtime.yml` (§3.2).
 
 - **Mesma imagem, processos diferentes.** `api` e `worker` escalam de forma independente, porque o workload é diferente: `api` responde request; `worker` consome fila.
 - **Um Postgres por serviço**, no compose do próprio serviço. Banco `wallet`, schema `wallet`. Ninguém mais conecta nele.
