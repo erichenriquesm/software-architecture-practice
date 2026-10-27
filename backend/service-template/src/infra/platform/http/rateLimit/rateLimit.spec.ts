@@ -63,13 +63,17 @@ describe('Rate limit plugin', () => {
     registerRateLimit(app, {
       limiter: new InMemoryRateLimiter('svc'),
       now: () => 1_000,
-      accountIdOf: (request) => (request.body as { accountId?: string } | undefined)?.accountId,
       groups: [
         {
           name: 'orders',
           matches: (request) => request.url === '/place_order',
           perIp: { limit: 100, windowMs: 10_000 },
-          perAccount: { limit: 2, windowMs: 10_000 },
+          perSubject: {
+            label: 'account',
+            limit: 2,
+            windowMs: 10_000,
+            subjectOf: (request) => (request.body as { accountId?: string } | undefined)?.accountId,
+          },
         },
       ],
     });

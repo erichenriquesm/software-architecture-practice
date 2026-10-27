@@ -2,20 +2,26 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { RateLimiter } from './rateLimiter.js';
 import type { RateLimitDecision, RateLimitPolicy } from './slidingWindow.js';
 
+export interface SubjectLimit extends Omit<RateLimitPolicy, 'name'> {
+  readonly label: string;
+  readonly subjectOf: (request: FastifyRequest) => string | undefined;
+}
+
 export interface RateLimitGroup {
   readonly name: string;
   readonly matches: (request: FastifyRequest) => boolean;
   readonly perIp: Omit<RateLimitPolicy, 'name'>;
-  readonly perAccount?: Omit<RateLimitPolicy, 'name'>;
+  readonly perSubject?: SubjectLimit;
   readonly costOf?: (request: FastifyRequest) => number;
 }
 
 export interface RateLimitOptions {
   readonly limiter: RateLimiter;
   readonly groups: readonly RateLimitGroup[];
-  readonly accountIdOf: (request: FastifyRequest) => string | undefined;
   readonly now?: () => number;
 }
+
+const capitalize = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 
 const policyHeader = (decision: RateLimitDecision): string =>
   `"${decision.policy.name}";q=${decision.policy.limit};w=${Math.round(decision.policy.windowMs / 1_000)}`;
@@ -33,9 +39,11 @@ const checksFor = (request: FastifyRequest, group: RateLimitGroup, options: Rate
   const cost = group.costOf?.(request) ?? 1;
   const nowMs = (options.now ?? Date.now)();
   const checks = [{ subject: `ip:${request.ip}`, policy: { name: `${group.name}Ip`, ...group.perIp }, cost, nowMs }];
-  const accountId = options.accountIdOf(request);
-  if (group.perAccount && accountId) {
-    checks.push({ subject: `account:${accountId}`, policy: { name: `${group.name}Account`, ...group.perAccount }, cost, nowMs });
+  const limit = group.perSubject;
+  const subject = limit?.subjectOf(request);
+  if (limit && subject) {
+    const policy = { name: `${group.name}${capitalize(limit.label)}`, limit: limit.limit, windowMs: limit.windowMs };
+    checks.push({ subject: `${limit.label}:${subject}`, policy, cost, nowMs });
   }
   return checks;
 };
