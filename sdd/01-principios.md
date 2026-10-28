@@ -16,8 +16,8 @@ Cada serviço tem três camadas:
     domain/                ← regras de negócio. Zero dependência de framework, banco ou broker.
       entities/            agregados e entidades (Account, Wallet, Order, OrderBook)
       valueObjects/        Email, Cpf, Quantity, Price…
-      domainEvents/        fatos no passado (AccountCreated, OrderAccepted…)
-      domainServices/      regra que envolve mais de uma entidade e não pertence a nenhuma
+      events/              domain events: fatos no passado (AccountCreated, OrderAccepted…)
+      services/            domain services: regra que envolve mais de uma entidade e não pertence a nenhuma
       errors.ts            erros de domínio
     application/           ← casos de uso: orquestram domínio + contratos.
       usecases/            um arquivo por caso de uso (signup.ts, getAccount.ts)
@@ -41,6 +41,8 @@ Cada serviço tem três camadas:
     fakes/                 um fake por contrato de application/contracts/
     support/               banco e broker efêmeros, fakes de rede, fixtures
 ```
+
+Dentro de `domain/` as pastas não repetem o prefixo: o caminho já diz que são do domínio. O nome do tipo continua completo (`DomainEvent`, `DomainEventDispatcher`), porque fora da pasta ele precisa se distinguir do evento de integração (`Envelope`).
 
 Dois `contracts/` com papéis diferentes: `application/contracts/` são **interfaces TypeScript** (o que o caso de uso precisa); `infra/contracts/` são **formatos de transporte** (JSON Schema e `.proto`), que só a `infra` lê.
 
@@ -167,7 +169,7 @@ Event-driven não vale só entre serviços: vale **dentro** do serviço. Se o ca
 | | Evento de domínio | Evento de integração |
 |---|---|---|
 | Nome | Classe no passado: `OrderAccepted`, `FundsReserved` | Tipo do contrato: `order.accepted`, `wallet.fundsReserved` |
-| Onde vive | `domain/domainEvents/` do serviço | `infra/contracts/published/events/` do serviço produtor; cópias em `infra/contracts/consumed/` dos consumidores (Published Language, §6) |
+| Onde vive | `domain/events/` do serviço | `infra/contracts/published/events/` do serviço produtor; cópias em `infra/contracts/consumed/` dos consumidores (Published Language, §6) |
 | Conteúdo | Pode carregar VOs e detalhes internos | Só primitivos e strings decimais, versionado |
 | Alcance | **Só dentro do serviço** | Outros serviços (e o próprio serviço, quando a reação é em outra transação) |
 | Quem converte | — | `IntegrationEventMapper`, adapter de saída da mensageria |

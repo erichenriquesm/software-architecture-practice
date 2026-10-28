@@ -38,7 +38,7 @@
 7. **Handlers comutativos** onde a ordem dos eventos não é garantida (liquidação × liberação de reserva; fill × cancelamento).
 8. **Repository** para estado de domínio, **DAO** para leitura, ambos com **Kysely** (query builder tipado, sem ORM) e migrações em SQL. **CQRS com tabelas de projeção**: nenhuma leitura pública espera outro serviço.
 9. **REST** na API pública, **gRPC** no síncrono interno, sempre com **Gateway + ACL** e só como fallback de projeção.
-10. **Ports & Adapters, com pastas simples:** `domain/` (`entities/`, `valueObjects/`, `domainEvents/`, `domainServices/`), `application/` (`usecases/`, `dtos/`, `contracts/` com as interfaces) e `infra/` agrupada por tecnologia (`http/`, `grpc/`, `messaging/`, `database/`, `platform/`, `contracts/` com JSON Schema e `.proto`). Casos de uso só conhecem as interfaces.
+10. **Ports & Adapters, com pastas simples:** `domain/` (`entities/`, `valueObjects/`, `events/`, `services/`), `application/` (`usecases/`, `dtos/`, `contracts/` com as interfaces) e `infra/` agrupada por tecnologia (`http/`, `grpc/`, `messaging/`, `database/`, `platform/`, `contracts/` com JSON Schema e `.proto`). Casos de uso só conhecem as interfaces.
 11. **Fallback com Chain of Responsibility**, terminando sempre em degradação explícita ou erro claro.
 12. **Lacunas do objetivo resolvidas com padrões de mercado** ([99](99-decisoes.md)): filtros de tick/step/valor mínimo em vez de arredondamento, prevenção de self-trade, `Idempotency-Key` estilo Stripe, janela móvel de 24 h, rebuild de projeção republicado a partir do banco do produtor (o broker só transporta).
 13. **Rate limit por uso** em duas camadas (edge por IP, serviço por conta), com limites mais apertados em autenticação e bloqueio escalonado para quem insiste.

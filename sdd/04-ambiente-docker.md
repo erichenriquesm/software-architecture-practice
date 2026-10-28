@@ -66,7 +66,7 @@ backend/
       docker-compose.platform.yml ← só a ligação com a plataforma (ex.: o worker espera o rabbitmq)
       docker-compose.test.yml ← testes de integração com infra efêmera e rede isolada
     src/
-      domain/                 ← entities/, valueObjects/, domainEvents/, domainServices/
+      domain/                 ← entities/, valueObjects/, events/, services/
       application/            ← usecases/, dtos/, contracts/
       infra/
         http/ grpc/ messaging/ database/

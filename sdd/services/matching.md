@@ -153,8 +153,8 @@ backend/matching/
     domain/
       entities/                     orderBook.ts  bookEntry.ts  bookSide.ts (bids e asks: a ordenação preço-tempo)  aggregateRoot.ts
       valueObjects/                 trade.ts  orderId.ts  accountId.ts  marketId.ts  side.ts  quantity.ts  price.ts
-      domainEvents/                 domainEvent.ts  tradeExecuted.ts  orderRemoved.ts  orderCancelRejected.ts  bookChanged.ts
-      domainServices/               (vazio por enquanto: toda regra cabe no agregado OrderBook)
+      events/                       domainEvent.ts  tradeExecuted.ts  orderRemoved.ts  orderCancelRejected.ts  bookChanged.ts
+      services/                     (vazio por enquanto: toda regra cabe no agregado OrderBook)
       errors.ts
     application/
       usecases/                     executeOrder.ts  removeOrder.ts  useCase.ts  bookStore.ts (carregar e salvar+despachar)

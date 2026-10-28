@@ -211,8 +211,8 @@ backend/wallet/
     domain/
       entities/                     wallet.ts  reservation.ts  ledgerEntry.ts  aggregateRoot.ts
       valueObjects/                 accountId.ts  orderId.ts  assetId.ts  quantity.ts  price.ts  side.ts  marketId.ts  balance.ts
-      domainEvents/                 domainEvent.ts  fundsReserved.ts  fundsReservationRejected.ts  balanceChanged.ts
-      domainServices/               (vazio por enquanto: toda regra cabe no agregado Wallet)
+      events/                       domainEvent.ts  fundsReserved.ts  fundsReservationRejected.ts  balanceChanged.ts
+      services/                     (vazio por enquanto: toda regra cabe no agregado Wallet)
       errors.ts
     application/
       usecases/                     openWallet.ts  deposit.ts  withdraw.ts  reserveFunds.ts  settleTradeSide.ts

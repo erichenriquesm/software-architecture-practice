@@ -121,8 +121,8 @@ backend/account/
     domain/
       entities/                     account.ts  aggregateRoot.ts
       valueObjects/                 accountId.ts  fullName.ts  email.ts  cpf.ts  password.ts  passwordHash.ts
-      domainEvents/                 domainEvent.ts  accountCreated.ts
-      domainServices/               (vazio por enquanto: nenhuma regra envolve mais de uma entidade)
+      events/                       domainEvent.ts  accountCreated.ts
+      services/                     (vazio por enquanto: nenhuma regra envolve mais de uma entidade)
       errors.ts
     application/
       usecases/                     signup.ts  getAccount.ts  projectWalletBalance.ts  accountExists.ts  useCase.ts

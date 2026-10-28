@@ -179,8 +179,8 @@ backend/order/
     domain/
       entities/                     order.ts  aggregateRoot.ts
       valueObjects/                 orderId.ts  accountId.ts  marketId.ts  side.ts  quantity.ts  price.ts  marketFilters.ts  orderStatus.ts
-      domainEvents/                 domainEvent.ts  orderPlaced.ts  orderAccepted.ts  orderCancelRequested.ts  orderVoided.ts
-      domainServices/               (vazio por enquanto: toda regra cabe no agregado Order)
+      events/                       domainEvent.ts  orderPlaced.ts  orderAccepted.ts  orderCancelRequested.ts  orderVoided.ts
+      services/                     (vazio por enquanto: toda regra cabe no agregado Order)
       errors.ts
     application/
       usecases/                     placeOrder.ts  cancelOrder.ts  acceptOrder.ts  rejectOrder.ts  expireOrder.ts  applyFill.ts
