@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading.local/contracts/markets.schema.json",
+  "title": "Market catalog",
+  "type": "object",
+  "required": ["version", "assets", "markets"],
+  "additionalProperties": false,
+  "$defs": {
+    "decimal": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$" },
+    "assetId": { "type": "string", "pattern": "^[A-Z]{3,5}$" }
+  },
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["assetId", "precision"],
+        "additionalProperties": false,
+        "properties": {
+          "assetId": { "$ref": "#/$defs/assetId" },
+          "precision": { "type": "integer", "minimum": 0, "maximum": 8 }
+        }
+      }
+    },
+    "markets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["marketId", "baseAsset", "quoteAsset", "tickSize", "stepSize", "minQuantity", "minNotional", "depthPrecision", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "marketId": { "type": "string", "pattern": "^[A-Z]{3,5}-[A-Z]{3,5}$" },
+          "baseAsset": { "$ref": "#/$defs/assetId" },
+          "quoteAsset": { "$ref": "#/$defs/assetId" },
+          "tickSize": { "$ref": "#/$defs/decimal" },
+          "stepSize": { "$ref": "#/$defs/decimal" },
+          "minQuantity": { "$ref": "#/$defs/decimal" },
+          "minNotional": { "$ref": "#/$defs/decimal" },
+          "depthPrecision": {
+            "type": "object",
+            "required": ["min", "max"],
+            "additionalProperties": false,
+            "properties": {
+              "min": { "type": "integer" },
+              "max": { "type": "integer" }
+            }
+          },
+          "status": { "enum": ["active", "halted"] }
+        }
+      }
+    }
+  }
+}

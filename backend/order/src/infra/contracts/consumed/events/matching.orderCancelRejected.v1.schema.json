@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading.local/contracts/matching.orderCancelRejected.v1.schema.json",
+  "title": "matching.orderCancelRejected v1 payload",
+  "type": "object",
+  "required": [
+    "orderId",
+    "marketId",
+    "reason"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "marketId": {
+      "type": "string",
+      "pattern": "^[A-Z]{3,5}-[A-Z]{3,5}$"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "NOT_IN_BOOK"
+      ]
+    }
+  }
+}

@@ -1,0 +1,53 @@
+name: order-test
+
+services:
+  tests:
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
+    command: ["npm", "run", "test:integration"]
+    env_file: ../.env.test
+    depends_on:
+      order-db-test:
+        condition: service_healthy
+      order-rabbitmq-test:
+        condition: service_healthy
+      order-redis-test:
+        condition: service_healthy
+    networks: [order-test-net]
+
+  order-db-test:
+    image: postgres:17-alpine
+    env_file: ../.env.test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [order-test-net]
+
+  order-rabbitmq-test:
+    image: rabbitmq:4-management-alpine
+    env_file: ../.env.test
+    tmpfs: [/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 10s
+      retries: 40
+    networks: [order-test-net]
+
+  order-redis-test:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [order-test-net]
+
+networks:
+  order-test-net:
+    name: order-test-net
+    driver: bridge
+    internal: true

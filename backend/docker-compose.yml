@@ -10,3 +10,7 @@ include:
       - wallet/docker/docker-compose.yml
       - wallet/docker/docker-compose.platform.yml
     env_file: wallet/.env
+  - path:
+      - order/docker/docker-compose.yml
+      - order/docker/docker-compose.platform.yml
+    env_file: order/.env

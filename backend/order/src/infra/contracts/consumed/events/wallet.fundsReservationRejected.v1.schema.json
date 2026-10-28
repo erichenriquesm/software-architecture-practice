@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading.local/contracts/wallet.fundsReservationRejected.v1.schema.json",
+  "title": "wallet.fundsReservationRejected v1 payload",
+  "type": "object",
+  "required": [
+    "orderId",
+    "accountId",
+    "reason"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "accountId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "INSUFFICIENT_FUNDS",
+        "WALLET_NOT_FOUND"
+      ]
+    }
+  }
+}

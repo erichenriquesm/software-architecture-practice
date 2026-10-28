@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading.local/contracts/matching.orderRemoved.v1.schema.json",
+  "title": "matching.orderRemoved v1 payload",
+  "type": "object",
+  "required": [
+    "orderId",
+    "accountId",
+    "marketId",
+    "side",
+    "remainingQuantity",
+    "reason"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "accountId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "marketId": {
+      "type": "string",
+      "pattern": "^[A-Z]{3,5}-[A-Z]{3,5}$"
+    },
+    "side": {
+      "type": "string",
+      "enum": [
+        "buy",
+        "sell"
+      ]
+    },
+    "remainingQuantity": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]{1,8})?$"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "CANCELLED",
+        "SELF_TRADE_PREVENTION"
+      ]
+    }
+  }
+}
