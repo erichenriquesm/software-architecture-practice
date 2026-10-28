@@ -314,6 +314,7 @@ Tudo pelo `Makefile` de `backend/` (a plataforma inteira) e pelo `Makefile` de c
 | `make down` | Para tudo (os volumes ficam) |
 | `make check` | Confere as cópias de contrato e o layout da raiz |
 | `make env` | Só cria os `.env` que ainda não existem (nunca sobrescreve) |
+| `make deps` | Instala o `node_modules` e gera o código gRPC de cada serviço **na sua máquina**, via container, só para o editor enxergar tipos e imports. Rode de novo quando mudar `package.json` ou um `.proto` |
 
 Um serviço sozinho continua possível, com a infra de pé: `docker compose -f backend/<svc>/docker-compose.yml up --watch`.
 
