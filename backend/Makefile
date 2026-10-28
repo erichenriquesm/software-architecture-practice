@@ -11,6 +11,7 @@
 #   make ps                 list the containers and their health
 #   make logs [s=account-api]   follow the logs (of one container when s= is given)
 #   make down               stop everything (volumes are kept)
+#   make projections-rebuild   rebuild the market-data projections from what matching republishes (platform up)
 #   make test               every kind of test of every service (static checks, unit, integration, contract) + make check
 #   make check              contract copies and repository root layout (only backend/, frontend/, sdd/)
 #   make env                create each .env from its .env.example when it does not exist yet
@@ -20,7 +21,7 @@ COMPOSE = docker compose -f docker-compose.yml
 SERVICES = $(patsubst %/Makefile,%,$(wildcard */Makefile))
 ENV_EXAMPLES = $(wildcard infra/.env.example */.env.example */.env.test.example)
 
-.PHONY: clone pull up watch infra migrate ps logs down check env deps deps-missing test
+.PHONY: clone pull up watch infra migrate ps logs down check env deps deps-missing test projections-rebuild
 
 clone:
 	@grep -v '^#' repos.txt | while read -r folder url; do \
@@ -83,6 +84,13 @@ down:
 	$(COMPOSE) down
 
 ROOT_ENTRIES = .git .claude .planning .DS_Store .gitignore README.md backend frontend sdd
+
+# The broker keeps no history: matching republishes its trades and books on matching.replay.* and
+# market-data applies them until the replayCompleted marker (sdd/03-mensageria.md §8).
+projections-rebuild:
+	$(MAKE) -C market-data projections-rebuild-prepare
+	$(MAKE) -C matching history-republish
+	$(MAKE) -C market-data projections-rebuild
 
 check:
 	docker run --rm -v "$(CURDIR)":/backend -w /backend node:26-alpine npx --yes tsx scripts/check-contracts.ts .
