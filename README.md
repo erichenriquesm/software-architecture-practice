@@ -13,6 +13,7 @@ Este é o repositório **guarda-chuva**: tem a especificação, a infraestrutura
 | `order` | Ordens limitadas, cancelamento e histórico | [software-architecture-practice-order](https://github.com/erichenriquesm/software-architecture-practice-order) |
 | `matching` | Livro de ofertas: casa compra e venda por preço-tempo | [software-architecture-practice-matching](https://github.com/erichenriquesm/software-architecture-practice-matching) |
 | `market-data` | Profundidade, negociações e estatísticas de 24 h | [software-architecture-practice-market-data](https://github.com/erichenriquesm/software-architecture-practice-market-data) |
+| `frontend` | Cliente web: Vue 3, Pinia, composables e o design system Lastro | [software-architecture-practice-frontend](https://github.com/erichenriquesm/software-architecture-practice-frontend) (privado) |
 
 ## Como subir tudo
 
@@ -21,15 +22,16 @@ Só precisa de Docker e `make`.
 ```bash
 git clone https://github.com/erichenriquesm/software-architecture-practice.git
 cd software-architecture-practice/backend
-make clone   # clona os cinco serviços em backend/<serviço>/
+make clone   # clona os cinco serviços em backend/<serviço>/ e o front em frontend/
 make up      # cria os .env, sobe infra + serviços e roda as migrações
+cd ../frontend && make up   # o cliente web em http://localhost:5173
 ```
 
-A API pública fica em `http://127.0.0.1:8080` (edge). O painel do RabbitMQ fica em `http://127.0.0.1:15672` (`admin` / `admin-rabbitmq-dev`).
+O app fica em `http://localhost:5173`; a API pública, em `http://127.0.0.1:8080` (edge). O painel do RabbitMQ fica em `http://127.0.0.1:15672` (`admin` / `admin-rabbitmq-dev`).
 
 | Comando (em `backend/`) | O que faz |
 |---|---|
-| `make clone` · `make pull` | clona os serviços que faltam · atualiza todos |
+| `make clone` · `make pull` | clona os serviços e o front que faltam · atualiza todos |
 | `make up` · `make down` · `make ps` · `make logs` | sobe, derruba, lista e acompanha a plataforma |
 | `make test` | todos os testes de todos os serviços, mais a checagem de contratos |
 | `make check` | confere se as cópias de contrato de cada serviço batem com o original do dono |
