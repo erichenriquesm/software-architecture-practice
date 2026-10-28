@@ -114,7 +114,7 @@ create table account_balance_view (
 
 ```
 backend/account/
-  .env.example  .env.test.example
+  .env.example  .env.test.example  Makefile (comandos de migração)
   docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
   Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
   initdb/roles.sh                   cria account_migrator e account_app no primeiro boot do banco

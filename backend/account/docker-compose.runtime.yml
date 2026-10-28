@@ -1,8 +1,4 @@
 services:
-  account-migrate:
-    build: { context: ., target: runtime }
-    command: ["node", "dist/infra/migrate.js"]
-
   account-api:
     build: { context: ., target: runtime }
     command: ["node", "dist/infra/api.js"]

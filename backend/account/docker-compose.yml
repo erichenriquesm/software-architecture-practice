@@ -33,16 +33,6 @@ services:
       retries: 30
     networks: [trading-net]
 
-  account-migrate:
-    build: { context: ., target: dev }
-    container_name: account-migrate
-    command: ["npm", "run", "migrate"]
-    env_file: .env
-    depends_on:
-      account-db:
-        condition: service_healthy
-    networks: [trading-net]
-
   account-api:
     build: { context: ., target: dev }
     container_name: account-api
@@ -57,8 +47,8 @@ services:
       timeout: 3s
       retries: 20
     depends_on:
-      account-migrate:
-        condition: service_completed_successfully
+      account-db:
+        condition: service_healthy
     networks: [trading-net]
     develop: *watch
 
@@ -73,8 +63,8 @@ services:
       timeout: 3s
       retries: 20
     depends_on:
-      account-migrate:
-        condition: service_completed_successfully
+      account-db:
+        condition: service_healthy
     networks: [trading-net]
     develop: *watch
 

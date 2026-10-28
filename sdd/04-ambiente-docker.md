@@ -35,7 +35,8 @@ backend/
   account/                    ← projeto STANDALONE (pode virar repositório próprio)
     package.json  package-lock.json
     tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-    docker-compose.yml        ← account-api, account-worker, account-migrate, account-db (sobe sozinho)
+    docker-compose.yml        ← account-api, account-worker, account-db (sobe sozinho)
+    Makefile                  ← comandos de migração estilo Laravel (§3.3)
     .env.example              ← configuração e credenciais de dev do serviço (§2.2)
     docker-compose.platform.yml ← só a ligação com a plataforma (ex.: o worker espera o rabbitmq)
     docker-compose.runtime.yml  ← imagens finais, sem Watch
@@ -183,9 +184,10 @@ Todo serviço segue o mesmo molde. Exemplo `backend/wallet/docker-compose.yml`:
 | Container | Comando (dev) | Depende de |
 |---|---|---|
 | `wallet-db` | `postgres:17-alpine`, volume `wallet-db-data` | — |
-| `wallet-migrate` | `npm run migrate` (roda e sai) | `wallet-db` saudável |
-| `wallet-api` | `tsx watch src/infra/api.ts` (REST + gRPC) | `wallet-migrate` concluído |
-| `wallet-worker` | `tsx watch src/infra/worker.ts` (consumidores + outbox relay) | `wallet-migrate` concluído, `rabbitmq` |
+| `wallet-api` | `tsx watch src/infra/api.ts` (REST + gRPC) | `wallet-db` saudável |
+| `wallet-worker` | `tsx watch src/infra/worker.ts` (consumidores + outbox relay) | `wallet-db` saudável, `rabbitmq` |
+
+Não existe container de migração: as migrações rodam por comando (`make migrate`, §3.3), dentro do container do serviço que já está de pé.
 
 O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e sobe sozinho, desde que a infraestrutura compartilhada já esteja de pé. O que só faz sentido dentro da plataforma (por exemplo, o worker esperar o `rabbitmq` ficar saudável) fica em `docker-compose.platform.yml`, que o `backend/docker-compose.yml` inclui junto: `include: [{ path: [<svc>/docker-compose.yml, <svc>/docker-compose.platform.yml] }]`. A imagem de execução (sem watch, com `dist/`) vem do override `docker-compose.runtime.yml` (§3.2).
 
@@ -193,7 +195,7 @@ O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e so
 - **Um Postgres por serviço**, no compose do próprio serviço. Banco `wallet`, schema `wallet`. Ninguém mais conecta nele.
 - Configuração por variável de ambiente, vinda do `.env` do serviço (§2.2), usando nomes DNS da `trading-net`. Sem IP.
 - Healthcheck em todo container de longa duração (`/health` no `api`; o `worker` também expõe `/health` numa porta interna).
-- `<svc>-migrate` usa o usuário `<svc>_migrator`; `api` e `worker` usam `<svc>_app`, que não altera estrutura ([autenticação §4](08-autenticacao-entre-servicos.md#4-postgres-dois-usu%C3%A1rios-por-servi%C3%A7o)).
+- O comando de migração usa o usuário `<svc>_migrator`; os processos `api` e `worker` usam `<svc>_app`, que não altera estrutura ([autenticação §4](08-autenticacao-entre-servicos.md#4-postgres-dois-usu%C3%A1rios-por-servi%C3%A7o)).
 
 ### 3.1 Desenvolvimento sem rebuild (Compose Watch)
 
@@ -214,8 +216,8 @@ services:
     env_file: .env                      # copied from .env.example (§2.2)
     networks: [trading-net]
     depends_on:
-      wallet-migrate:
-        condition: service_completed_successfully
+      wallet-db:
+        condition: service_healthy
     develop:
       watch:
         - action: sync                  # own code: hot reload via tsx watch
@@ -242,7 +244,7 @@ O `wallet-worker` tem o mesmo bloco `develop.watch`, com `command` apontando par
 |---|---|---|
 | Código do serviço (`src/`) | **Não** | `sync` → `tsx watch` reinicia em ~1 s |
 | `src/infra/contracts/` do serviço (inclusive `.proto`) | **Não** | `sync+restart` → o comando regenera o código do gRPC e sobe |
-| Nova migração | **Não** | Cria com `make:migration` (§3.3) e aplica com `docker compose run --rm wallet-migrate` |
+| Nova migração | **Não** | `make migration name=...` cria o arquivo e `make migrate` aplica (§3.3) |
 | Variável de ambiente no compose | **Não** | `docker compose up -d` recria só o container, com a mesma imagem |
 | Teste | **Não** | `docker compose exec wallet-api npx vitest` (modo watch) |
 | `package.json` / `package-lock.json` do serviço | Sim | `rebuild` automático pelo watch |
@@ -255,17 +257,19 @@ docker compose -f backend/docker-compose.yml up --watch
 
 ### 3.3 Migrações (estilo Laravel)
 
-As migrações ficam em `src/infra/database/migrations/` e rodam no container `<svc>-migrate`. Os comandos:
+As migrações ficam em `src/infra/database/migrations/` e **não têm container próprio**: rodam por comando, dentro do container `<svc>-api` que já está de pé (no `matching`, que não tem `api`, dentro do `<svc>-worker`). É o mesmo fluxo do `php artisan` dentro do container da aplicação. Cada serviço tem um `Makefile` com os comandos; rode dentro de `backend/<svc>/`, com a plataforma de pé:
 
-| Laravel | Aqui (dentro de `backend/`, com o mesmo compose que subiu a plataforma) |
+| Laravel | Aqui |
 |---|---|
-| `php artisan migrate` | `docker compose -f docker-compose.yml run --rm <svc>-migrate npm run migrate` (é o que o container já faz ao subir) |
-| `php artisan migrate:rollback` | `docker compose -f docker-compose.yml run --rm <svc>-migrate npm run migrate:rollback` |
-| `php artisan migrate:status` | `docker compose -f docker-compose.yml run --rm <svc>-migrate npm run migrate:status` |
-| `php artisan migrate:fresh` | `docker compose -f docker-compose.yml run --rm <svc>-migrate npm run migrate:fresh` |
-| `php artisan make:migration create_x_table` | `docker compose -f docker-compose.yml run --rm -v ./<svc>/src/infra/database/migrations:/app/src/infra/database/migrations <svc>-migrate npm run make:migration -- create_x_table` |
+| `php artisan migrate` | `make migrate` |
+| `php artisan migrate:rollback` | `make migrate-rollback` |
+| `php artisan migrate:status` | `make migrate-status` |
+| `php artisan migrate:fresh` | `make migrate-fresh` |
+| `php artisan make:migration create_x_table` | `make migration name=create_x_table` |
 
-O `make:migration` monta a pasta de migrações do host no container (`-v`), para o arquivo novo aparecer no seu código. Com o serviço subido sozinho, troque `-f docker-compose.yml` por `-f <svc>/docker-compose.yml`: usar o compose do serviço enquanto a plataforma está de pé dá conflito de nome de container.
+- Primeira subida (ou banco novo): `docker compose -f backend/docker-compose.yml up -d` e depois `make migrate`. Até migrar, o `api` responde, mas qualquer rota que toque o banco falha.
+- `make migration` sobe um container avulso com a pasta de migrações do host montada (`-v`), para o arquivo novo aparecer no seu código.
+- Por baixo, cada alvo do `Makefile` é um `docker compose exec <svc>-api npm run migrate…`.
 
 ### 3.2 Modo de execução (imagem final)
 
@@ -337,7 +341,7 @@ Testes de integração **não** rodam no build, porque precisam de Postgres/Rabb
 | Peça local | Função | Equivalente na AWS |
 |---|---|---|
 | `*-api`, `*-worker` | Processos dos serviços | Amazon ECS (Fargate ou EC2) ou Amazon EKS |
-| `*-migrate` | Migração antes de subir | Tarefa avulsa do ECS ou Job do EKS |
+| `make migrate` | Migração antes de subir | Tarefa avulsa do ECS ou Job do EKS, com a imagem do serviço rodando `node dist/infra/migrate.js` |
 | `<svc>-db` | Um Postgres por serviço | Amazon RDS for PostgreSQL ou Amazon Aurora PostgreSQL |
 | `rabbitmq` | Broker único | Amazon MQ for RabbitMQ ou RabbitMQ autogerenciado em container |
 | `redis` | Contadores de rate limit | Amazon ElastiCache (Redis OSS ou Valkey) |
@@ -380,8 +384,8 @@ Testes de integração **não** rodam no build, porque precisam de Postgres/Rabb
 **Passo 5 — Processos**
 1. Para cada serviço, crie:
    - uma definição para o `api` e outra para o `worker`, com a mesma imagem e comandos diferentes (§3.2);
-   - uma tarefa avulsa para o `migrate`.
-2. Ordem de cada implantação: rode o `migrate` → espere terminar com sucesso → atualize `api` e `worker`.
+   - uma tarefa avulsa de migração: a mesma imagem, com o comando `node dist/infra/migrate.js`.
+2. Ordem de cada implantação: rode a migração → espere terminar com sucesso → atualize `api` e `worker`.
 3. Escalonamento:
    - `api` e `worker` escalam separadamente;
    - o `worker` do `matching` pode ter várias réplicas, mas só uma consome cada mercado (`single-active-consumer`, [mensageria §6](03-mensageria.md#6-ordem-garantida-a-fila-do-matching)).

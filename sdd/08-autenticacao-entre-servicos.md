@@ -110,7 +110,7 @@ Cada banco de serviço tem **dois** usuários, para que o processo que atende re
 
 | Usuário | Usado por | Pode |
 |---|---|---|
-| `<svc>_migrator` | container `<svc>-migrate` | Dono do schema: `CREATE` / `ALTER` / `DROP` |
+| `<svc>_migrator` | comando de migração (`make migrate`, [ambiente §3.3](04-ambiente-docker.md#33-migrações-estilo-laravel)) | Dono do schema: `CREATE` / `ALTER` / `DROP` |
 | `<svc>_app` | `<svc>-api` e `<svc>-worker` | Só `SELECT`, `INSERT`, `UPDATE`, `DELETE` nas tabelas do schema e uso das sequences (`GRANT` feito pela migração) |
 
 - **Como são criados:** no primeiro boot do `<svc>-db`, o script `backend/<svc>/initdb/roles.sh` (montado em `/docker-entrypoint-initdb.d/`) cria os dois usuários com as senhas do `.env` do serviço. O superusuário (`POSTGRES_PASSWORD`) só é usado nesse momento.
