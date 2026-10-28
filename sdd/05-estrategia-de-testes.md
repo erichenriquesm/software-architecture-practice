@@ -48,12 +48,17 @@ Proporção-alvo em número de testes: **~70% unidade · ~20% integração · ~7
 - Mudança incompatível de contrato quebra esses testes antes de quebrar a produção.
 
 ### E2E — poucos, caminhos críticos
-1. Signup → Deposit → GetAccount mostra o saldo.
+0. Autenticação: rota privada sem sessão ou com `Authorization` forjado → `401`; conta de outro usuário → `403`; logout encerra a sessão.
+1. Signup → Login → Deposit → GetAccount mostra o saldo.
 2. Duas contas: compra + venda que cruzam → trade → saldos liquidados nas duas contas → `GetOrders` com fills → depth e trades em `market-data`.
 3. Ordem sem saldo → `rejected`.
 4. Ordem aberta → cancel → saldo reservado volta.
 
-E2E usa só a API pública REST pelo edge proxy, e espera a consistência eventual com *polling* com timeout (nunca `sleep` fixo).
+E2E usa só a API pública REST pelo edge proxy, e espera a consistência eventual com *polling* com timeout (nunca `sleep` fixo). Fica em `backend/e2e/` (`node:test` + `fetch`, sem dependência) e roda contra a plataforma de desenvolvimento, sem apagá-la. Para repetir sem ambiente novo:
+
+- **Duas contas fixas** (`e2e-buyer`, `e2e-seller`): o cadastro só acontece na primeira execução, porque o limite é 5 por IP por hora.
+- **Saldos comparados por diferença**, a partir de um saldo já assentado (o depósito aparece na projeção antes da medida).
+- **Preço dentro do spread atual**: acima da melhor compra e abaixo da melhor venda, para que as ordens do E2E só casem entre si, mesmo com ordens de outras contas no livro.
 
 ---
 
@@ -132,16 +137,16 @@ Tudo em container.
 | `make test-unit` | typecheck, lint, regras de arquitetura e testes de unidade (`test/unit/`) |
 | `make test-integration` | testes de integração e de contrato (`test/integration/`) com Postgres, RabbitMQ e Redis efêmeros; os containers são removidos ao final, mesmo se um teste falhar |
 
-O E2E entra no `make test` de `backend/` quando existir (fase 6 do roteiro).
+O E2E roda com `make e2e` em `backend/`: sobe e migra a plataforma e depois executa os cenários.
 
 
 | O quê | Como |
 |---|---|
 | Unidade | Roda no **build da imagem** de cada serviço; ou `npm run docker:test` no serviço (mostra a saída). |
 | Integração + contrato | `make test-integration` em `backend/<svc>/` (por baixo: `docker compose -f docker/docker-compose.test.yml --env-file .env.test run --rm --build tests` e depois `down -v`) — sobe `<svc>-db-test` (Postgres em `tmpfs`), `<svc>-rabbitmq-test` e `<svc>-redis-test` efêmeros numa rede isolada `<svc>-test-net` (§3.1), roda e descarta. Os fakes de outros serviços sobem dentro do processo de teste. |
-| E2E | `docker compose -f backend/e2e/docker-compose.yml run --rm e2e` — sobe a plataforma inteira em ambiente local (os mesmos composes de desenvolvimento) e roda os cenários. |
+| E2E | `make e2e` em `backend/` (por baixo: `make up` e depois `docker compose run --rm e2e` dentro de `backend/e2e/`) — usa os mesmos composes de desenvolvimento e roda os cenários pelo edge. |
 
-RabbitMQ e Redis dos testes de integração são **efêmeros e isolados por serviço**, para que testes de serviços diferentes não interfiram entre si. A regra de "um único RabbitMQ" vale para a plataforma em execução, não para testes isolados. O E2E é o único nível que sobe os serviços de verdade, cada execução num ambiente novo.
+RabbitMQ e Redis dos testes de integração são **efêmeros e isolados por serviço**, para que testes de serviços diferentes não interfiram entre si. A regra de "um único RabbitMQ" vale para a plataforma em execução, não para testes isolados. O E2E é o único nível que sobe os serviços de verdade.
 
 Os testes de integração ficam num arquivo próprio (`docker/docker-compose.test.yml`), que declara só os containers efêmeros de teste. Assim um `down -v` dos testes nunca alcança o banco de desenvolvimento do serviço.
 

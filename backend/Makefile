@@ -13,6 +13,7 @@
 #   make down               stop everything (volumes are kept)
 #   make projections-rebuild   rebuild the market-data projections from what matching republishes (platform up)
 #   make test               every kind of test of every service (static checks, unit, integration, contract) + make check
+#   make e2e                start and migrate the platform, then run the end-to-end tests through the edge
 #   make check              contract copies and repository root layout (only backend/, frontend/, sdd/)
 #   make env                create each .env from its .env.example when it does not exist yet
 #   make deps               node_modules + generated gRPC code of every service on your machine, for the editor
@@ -21,7 +22,7 @@ COMPOSE = docker compose -f docker-compose.yml
 SERVICES = $(patsubst %/Makefile,%,$(wildcard */Makefile))
 ENV_EXAMPLES = $(wildcard infra/.env.example */.env.example */.env.test.example)
 
-.PHONY: clone pull up watch infra migrate ps logs down check env deps deps-missing test projections-rebuild
+.PHONY: clone pull up watch infra migrate ps logs down check env deps deps-missing test e2e projections-rebuild
 
 clone:
 	@grep -v '^#' repos.txt | while read -r folder url; do \
@@ -61,6 +62,9 @@ test: env
 	  $(MAKE) --no-print-directory -C $$service test || exit 1; \
 	done
 	@$(MAKE) --no-print-directory check
+
+e2e: up
+	cd e2e && docker compose run --rm e2e
 
 # Only the services whose node_modules is missing (a new service, a fresh clone): keeps `make up` fast.
 deps-missing:

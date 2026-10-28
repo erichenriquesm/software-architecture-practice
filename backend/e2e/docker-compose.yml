@@ -1,0 +1,24 @@
+# End-to-end tests against the whole platform, through the edge only (sdd/05-estrategia-de-testes.md §2).
+# Run with `make e2e` in backend/: it starts and migrates the platform first.
+name: trading
+
+include:
+  - ../docker-compose.yml
+
+services:
+  e2e:
+    image: node:26-alpine
+    working_dir: /e2e
+    volumes:
+      - ./:/e2e:ro
+    environment:
+      EDGE_URL: http://edge
+    command: ["node", "--test", "--test-concurrency=1", "test/platform.test.ts"]
+    depends_on:
+      edge: { condition: service_healthy }
+      account-api: { condition: service_healthy }
+      wallet-api: { condition: service_healthy }
+      order-api: { condition: service_healthy }
+      market-data-api: { condition: service_healthy }
+      matching-worker: { condition: service_healthy }
+    networks: [trading-net]
