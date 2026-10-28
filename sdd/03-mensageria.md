@@ -46,12 +46,12 @@ Nome: `<consumidor>.<assunto>`.
 | `wallet.tradeExecuted` | `matching.events` → `matching.tradeExecuted.*` | `wallet` | Liquida |
 | `wallet.orderRemoved` | `matching.events` → `matching.orderRemoved.*` | `wallet` | Libera reserva restante |
 | `wallet.orderVoided` | `order.events` → `order.voided` | `wallet` | Compensação da saga S2 |
-| `marketData.matchingLog` | `matching.events` → `matching.#` | `market-data` | **Stream** (não é fila comum): log relido do início para reconstruir projeções (§8) |
 | `order.fundsReservation` | `wallet.events` → `wallet.fundsReserved`, `wallet.fundsReservationRejected` | `order` | Abre ou rejeita a ordem |
 | `order.matchingResults` | `matching.events` → `matching.tradeExecuted.*`, `matching.orderRemoved.*`, `matching.orderCancelRejected.*` | `order` | Fills e cancelamento |
 | `matching.orders.BTC-USD` | `order.events` → `order.accepted.BTC-USD`, `order.cancelRequested.BTC-USD` | `matching` | **Ordenada**: ver §6 |
 | `marketData.trades` | `matching.events` → `matching.tradeExecuted.*` | `market-data` | Histórico/estatística |
 | `marketData.book` | `matching.events` → `matching.bookSnapshot.*` | `market-data` | Depth e top of book |
+| `marketData.replay` | `matching.events` → `matching.replay.#` | `market-data` | Vazia no dia a dia; só recebe o republish do rebuild (§8) |
 | `account.walletBalances` | `wallet.events` → `wallet.balanceChanged` | `account` | Projeção de saldos para o `GetAccount` |
 
 Configuração padrão de fila: `durable`, `x-queue-type: quorum`, mensagens `persistent`, `prefetch` 10 (exceto `matching`: 1).
@@ -99,6 +99,7 @@ Só publicamos evento que tem consumidor ou que é fato central do negócio. Ex.
 | `matching.orderRemoved` | matching | `orderId, accountId, marketId, side, remainingQuantity, reason` (`CANCELLED` \| `SELF_TRADE_PREVENTION`) | order, wallet |
 | `matching.orderCancelRejected` | matching | `orderId, marketId, reason` (`NOT_IN_BOOK`) | order |
 | `matching.bookSnapshot` | matching | `marketId, sequence, bids[{price, quantity}], asks[{price, quantity}]` | market-data |
+| `matching.replayCompleted` | matching | `trades, snapshots` (quantos eventos o republish mandou) | market-data (só no rebuild, §8) |
 | `wallet.balanceChanged` | wallet | `accountId, assetId, available, reserved, version` (estado final do saldo, não o delta) | account |
 
 ### Eventos de estado para projeções
@@ -269,16 +270,19 @@ sequenceDiagram
 
 ---
 
-## 8. Stream para replay de projeções
+## 8. Rebuild de projeções: republish a partir do produtor
 
-Fila comum apaga a mensagem depois do `ack`, então não serve para reconstruir projeção. Para isso, o `market-data` declara um **RabbitMQ Stream** no mesmo broker ([Q17](99-decisoes.md#q17)):
+O broker **só transporta**: fila apaga a mensagem depois do `ack` e nada guarda histórico nele. Para reconstruir uma projeção, o **dono do dado republica** a partir do próprio banco ([Q17](99-decisoes.md#q17)). Hoje o único caso é o `market-data`, alimentado pelo `matching`:
 
-| Item | Valor |
-|---|---|
-| Nome | `marketData.matchingLog` (`x-queue-type: stream`) |
-| Binding | `matching.events` → `matching.#` |
-| Retenção | `x-max-age: 30D` |
-| Uso normal | Nenhum: as projeções são alimentadas pelas filas `marketData.trades` e `marketData.book` |
-| Uso no rebuild | `make projections-rebuild` no `market-data` (`npm run projections:rebuild` no `market-data-worker`) apaga as `*_view` e consome o stream com `x-stream-offset: first` até alcançar o fim, que o consumidor reconhece por ficar ocioso (`REBUILD_IDLE_TIMEOUT`): pela AMQP 0.9.1 ele não sabe qual é o último offset |
+| Passo | Quem | O quê |
+|---|---|---|
+| 1 | `market-data` | `make projections-rebuild-prepare`: esvazia (`purge`) a fila `marketData.replay` |
+| 2 | `matching` | `make history-republish`: lê o banco e publica direto em `matching.events` (canal com *publisher confirms*, sem outbox): todos os trades de `trade` (por mercado e `book_sequence`) como `matching.tradeExecuted` com routing `matching.replay.tradeExecuted.<marketId>`; o snapshot atual de cada livro como `matching.bookSnapshot` com routing `matching.replay.bookSnapshot.<marketId>`; por fim `matching.replayCompleted` com routing `matching.replay.completed` |
+| 3 | `market-data` | `make projections-rebuild`: apaga as `*_view` e consome `marketData.replay` aplicando cada evento nos mesmos projetores, **sem inbox**, até chegar o `matching.replayCompleted` |
 
-Reler é seguro porque as projeções são idempotentes (`trade_id`) e *last-write-wins* (`sequence`). Continua valendo a regra do §1: quem precisa do replay (o consumidor) declara o stream; o `matching` não sabe que ele existe.
+`make projections-rebuild` no `Makefile` de `backend/` roda os três passos em ordem.
+
+- **Ninguém mais recebe o republish.** Os bindings normais usam `*` (uma palavra só: `matching.tradeExecuted.*`), e `matching.replay.tradeExecuted.BTC-USD` tem uma palavra a mais. `wallet` e `order` não liquidam nem preenchem nada de novo.
+- **Reler é seguro:** as projeções são idempotentes (`trade_id`) e *last-write-wins* (`sequence`). Os consumers normais podem continuar rodando durante o rebuild.
+- **O fim é explícito:** o marcador `replayCompleted` diz que acabou; não há timeout de ociosidade.
+- Continua valendo a regra do §1: quem consome (o `market-data`) declara e liga a própria fila. O `matching` só publica no próprio exchange com o prefixo `matching.replay.`; não sabe quem escuta.

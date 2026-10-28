@@ -28,7 +28,7 @@
 | <a id="q14"></a>**Q14** | Origem de depósito e saque. | **Simulados** (confirmado): só mexem no saldo. Sem gateway de pagamento, banco ou blockchain. | — |
 | <a id="q15"></a>**Q15** | Código atual na raiz (`src/`, `Dockerfile`, `package.json`…). | **Era só experimento: nada é migrado.** Tudo o que está hoje na raiz (`src/`, `dist/`, `node_modules/`, `Dockerfile`, `.dockerignore`, `.npmrc`, `package.json`, `package-lock.json`, `tsconfig.json`, `vitest.config.ts`) é **apagado no início da fase 0**. A raiz passa a ter só `backend/` e `frontend/`, além de `sdd/` e dos arquivos do git ([ambiente §0](04-ambiente-docker.md#0-layout-da-raiz-do-reposit%C3%B3rio)). As ideias que valem (VOs de nome e e-mail, corrente de fallback) são reescritas do zero nos lugares certos. | — |
 | <a id="q16"></a>**Q16** | GetMarket sem período. | **Janela móvel das últimas 24 h** (não o dia do calendário). | Binance `ticker/24hr`: "rolling window", não o dia UTC. |
-| <a id="q17"></a>**Q17** | Reconstruir projeções sem histórico no broker. | **RabbitMQ Stream** (log só de inclusão, relido por offset) no mesmo broker. O `market-data` declara o stream `marketData.matchingLog` com binding em `matching.events` (`matching.#`). No rebuild, apaga as `*_view` e relê o stream do início; as projeções são idempotentes e *last-write-wins*, então reler é seguro. Retenção: `x-max-age` de 30 dias no conceito. | RabbitMQ Streams (desde a 3.9): leitura não destrutiva com offset, própria para replay. |
+| <a id="q17"></a>**Q17** | Reconstruir projeções sem histórico no broker. | **Republish a partir do banco do produtor.** O broker só transporta; o histórico completo já está na tabela `trade` do `matching`. No rebuild, o `matching` publica todos os trades e o snapshot atual de cada livro com routing `matching.replay.*` (que nenhum binding normal pega) e um marcador `matching.replayCompleted`; o `market-data` apaga as `*_view` e consome a fila `marketData.replay` até o marcador. As projeções são idempotentes e *last-write-wins*, então reler é seguro. Descartado: RabbitMQ Stream (histórico duplicado no broker, retenção limitada e fim do log só detectável por ociosidade). | Padrão comum em CQRS/event-driven: projeção é descartável e se reconstrói a partir da fonte da verdade. |
 
 ---
 
@@ -77,7 +77,7 @@ O arquivo tem um JSON Schema próprio, ao lado dele em `infra/contracts/`, e é 
 | Q7 (cancelar em `pending`) | [order](services/order.md), [wallet](services/wallet.md), [mensageria](03-mensageria.md), [sagas](06-sagas.md) |
 | Q9 (STP) | [matching](services/matching.md), [wallet](services/wallet.md), [order](services/order.md), [mensageria](03-mensageria.md), [sagas](06-sagas.md) |
 | Q13 (`Idempotency-Key` em todos os POSTs) | [princípios](01-principios.md), todos os serviços com REST |
-| Q16, Q17 (24 h e stream) | [market-data](services/market-data.md), [mensageria](03-mensageria.md) |
+| Q16, Q17 (24 h e rebuild) | [market-data](services/market-data.md), [matching](services/matching.md), [mensageria](03-mensageria.md) |
 
 ## Fontes
 
@@ -90,4 +90,3 @@ O arquivo tem um JSON Schema próprio, ao lado dele em `infra/contracts/`, e é 
 - Coinbase Exchange — ordens, `holds` e liquidação: https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/orders/get-single-order.md
 - Bitfinex — níveis de agregação do book: https://docs.bitfinex.com/reference/ws-public-books
 - Stripe — requisições idempotentes: https://docs.stripe.com/api/idempotent_requests
-- RabbitMQ — Streams e replay: https://www.cloudamqp.com/blog/rabbitmq-streams-and-replay-features-part-1-when-to-use-rabbitmq-streams.html · https://www.rabbitmq.com/docs/stream-effectively-once-processing

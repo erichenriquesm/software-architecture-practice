@@ -41,7 +41,7 @@ Nada de código, `package.json` ou `Dockerfile` na raiz. O que existe hoje na ra
 
 ```
 backend/
-  Makefile                    ← make clone / pull / up / watch / migrate / ps / logs / down / test / check (§4)
+  Makefile                    ← make clone / pull / up / watch / migrate / ps / logs / down / test / check / projections-rebuild (§4)
   repos.txt                   ← os repositórios dos serviços (§0)
   docker-compose.yml          ← sobe a plataforma inteira em ambiente local (include de todos os composes)
   infra/                      ← infraestrutura compartilhada; nenhum código de serviço
@@ -398,7 +398,7 @@ Testes de integração **não** rodam no build, porque precisam de Postgres/Rabb
 1. **Postgres**: um banco por serviço, cada um com usuário e senha próprios.
    - Escolha **RDS for PostgreSQL** se basta uma instância com réplica de failover.
    - Escolha **Aurora PostgreSQL** se precisar de réplicas de leitura com pouco atraso ou armazenamento que cresce sozinho.
-2. **Broker**: o projeto exige do RabbitMQ: exchanges `topic`, quorum queues, `x-single-active-consumer`, filas com TTL e dead-letter, e **streams** (replay do `market-data`, [mensageria §8](03-mensageria.md#8-stream-para-replay-de-proje%C3%A7%C3%B5es)).
+2. **Broker**: o projeto exige do RabbitMQ: exchanges `topic`, quorum queues, `x-single-active-consumer`, filas com TTL e dead-letter. Não usa streams: o rebuild de projeção é republicado pelo produtor ([mensageria §8](03-mensageria.md#8-rebuild-de-proje%C3%A7%C3%B5es-republish-a-partir-do-produtor)).
    - Escolha **Amazon MQ for RabbitMQ** se a versão disponível suportar todos esses recursos.
    - Escolha **RabbitMQ autogerenciado em container** se algum deles não for suportado.
 3. **Redis**: um cluster no **ElastiCache**. Cada serviço usa o próprio prefixo de chave, como no local.

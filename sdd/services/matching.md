@@ -133,6 +133,15 @@ Entrada totalmente executada é **apagada** de `book_entry`: o livro guarda só 
 
 Os mercados vêm do `markets.json` (os de `status: active`): o worker abre uma fila `matching.orders.<marketId>` e um consumidor por mercado. Mercado novo = nova entrada no catálogo (e nas cópias dele), sem variável de ambiente.
 
+### Republish do histórico
+
+`make history-republish` (`npm run history:republish` no `matching-worker`) existe só para o rebuild das projeções do `market-data` ([mensageria §8](../03-mensageria.md#8-rebuild-de-proje%C3%A7%C3%B5es-republish-a-partir-do-produtor)). Lê o banco e publica direto em `matching.events`, num canal com *publisher confirms* (sem outbox: não muda estado, e se cair basta rodar de novo):
+1. cada linha de `trade`, por mercado e `book_sequence`, como `matching.tradeExecuted` com routing `matching.replay.tradeExecuted.<marketId>`;
+2. o snapshot atual de cada livro (`OrderBook.levels()`) como `matching.bookSnapshot` com routing `matching.replay.bookSnapshot.<marketId>`;
+3. `matching.replayCompleted` (`trades`, `snapshots`) com routing `matching.replay.completed`.
+
+Os bindings de `wallet` e `order` (`matching.tradeExecuted.*`) não pegam o prefixo `matching.replay.`, então ninguém liquida nem preenche de novo.
+
 ## 8. Estrutura
 
 ```
@@ -156,6 +165,7 @@ backend/matching/
       messaging/
         consumers/marketOrdersConsumer.ts   um por mercado; retry em processo; consumedEvent.ts
         matchingIntegrationEvents.ts        domain event → outbox
+        historyRepublisher.ts               republish do histórico para rebuild de projeção
       database/                     kyselyOrderBookRepository.ts  kyselyTransactionRunner.ts  postgres.ts  database.ts
                                     migrator.ts  migrationFiles.ts
         migrations/                 outbox, inbox, book, book_entry, trade
@@ -163,10 +173,11 @@ backend/matching/
       platform/                     copiados do order, sem http/ (não há rotas públicas) e sem security/ (não há gRPC)
       contracts/
         published/events/           matching.tradeExecuted.v1  matching.orderRemoved.v1  matching.orderCancelRejected.v1  matching.bookSnapshot.v1
+                                    matching.replayCompleted.v1
         consumed/events/            order.accepted.v1  order.cancelRequested.v1
         envelope.schema.json  markets.json  markets.schema.json
       composition.ts  settings.ts  system.ts
-      worker.ts  migrate.ts
+      worker.ts  migrate.ts  republish.ts
   test/
     unit/  integration/             espelham src/
     fakes/  support/
