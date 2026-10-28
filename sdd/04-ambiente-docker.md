@@ -193,7 +193,7 @@ O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e so
 - **Mesma imagem, processos diferentes.** `api` e `worker` escalam de forma independente, porque o workload é diferente: `api` responde request; `worker` consome fila.
 - **Um Postgres por serviço**, no compose do próprio serviço. Banco `wallet`, schema padrão (`public`). Ninguém mais conecta nele. O próprio Postgres cria banco e usuário no primeiro boot, a partir de `DATABASE_NAME`, `DATABASE_USER` e `DATABASE_PASSWORD` do `.env` (sem script de init).
 - Configuração por variável de ambiente, vinda do `.env` do serviço (§2.2), usando nomes DNS da `trading-net`. Sem IP.
-- Healthcheck em todo container de longa duração (`/health` no `api`; o `worker` também expõe `/health` numa porta interna).
+- Healthcheck em todo container de longa duração (`/health` no `api`; o `worker` também expõe `/health` numa porta interna e responde `503` enquanto está sem conexão com o RabbitMQ). O worker reconecta sozinho ao broker, com backoff, e refaz relay e consumers na conexão nova ([mensageria §4](03-mensageria.md#4-retry-backoff-e-dlq)).
 - Um único usuário por serviço no Postgres: o mesmo migra e acessa os dados ([autenticação §4](08-autenticacao-entre-servicos.md#4-postgres-um-usu%C3%A1rio-por-servi%C3%A7o)).
 
 ### 3.1 Desenvolvimento sem rebuild (Compose Watch)

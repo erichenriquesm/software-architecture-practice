@@ -4,7 +4,7 @@ import { Migrator } from './database/migrator.js';
 import { postgresSettings } from './settings.js';
 
 /*
- * Laravel-style commands (run inside the account-migrate container):
+ * Laravel-style commands (run inside the service's api container; see the service Makefile):
  *   npm run migrate                 run the pending migrations as one batch
  *   npm run migrate:rollback        undo the last batch
  *   npm run migrate:status          list every migration and whether it ran
