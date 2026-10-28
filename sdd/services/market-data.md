@@ -126,8 +126,8 @@ Todas as tabelas são **descartáveis**: `npm run projections:rebuild` (containe
 ```
 backend/market-data/
   .env.example  .env.test.example
-  docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
-  Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
+  docker/                           Dockerfile  Dockerfile.dockerignore  docker-compose.yml  docker-compose.platform.yml  docker-compose.test.yml
+  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
   migrations/
   src/
     (sem domain/: não há invariante a proteger, §3)

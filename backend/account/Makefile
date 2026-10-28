@@ -40,7 +40,7 @@ deps:
 	docker run --rm -v "$(CURDIR)":/app -w /app node:26-alpine \
 	  sh -c 'apk add --no-cache protobuf >/dev/null && npm ci --ignore-scripts --no-audit --no-fund && npm run --silent proto:gen'
 
-TEST_COMPOSE = docker compose -f docker-compose.test.yml
+TEST_COMPOSE = docker compose -f docker/docker-compose.test.yml
 
 .env.test:
 	cp .env.test.example .env.test

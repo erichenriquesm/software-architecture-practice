@@ -21,8 +21,7 @@ Nada de código, `package.json` ou `Dockerfile` na raiz. O que existe hoje na ra
 ```
 backend/
   Makefile                    ← make up / watch / migrate / ps / logs / down / check (§4)
-  docker-compose.yml          ← sobe a plataforma inteira (include de todos os composes)
-  docker-compose.runtime.yml  ← override com as imagens finais (E2E)
+  docker-compose.yml          ← sobe a plataforma inteira em ambiente local (include de todos os composes)
   infra/                      ← infraestrutura compartilhada; nenhum código de serviço
     docker-compose.yml        ← RabbitMQ único + Redis + edge proxy + rede trading-net
     .env.example              ← credenciais de dev do RabbitMQ e do Redis (§2.2)
@@ -35,14 +34,15 @@ backend/
   account/                    ← projeto STANDALONE (pode virar repositório próprio)
     package.json  package-lock.json
     tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-    docker-compose.yml        ← account-api, account-worker, account-db (sobe sozinho)
-    Makefile                  ← comandos de migração estilo Laravel (§3.3)
+    Makefile                  ← migrações estilo Laravel (§3.3), testes, deps
     .env.example              ← configuração e credenciais de dev do serviço (§2.2)
-    docker-compose.platform.yml ← só a ligação com a plataforma (ex.: o worker espera o rabbitmq)
-    docker-compose.runtime.yml  ← imagens finais, sem Watch
-    docker-compose.test.yml     ← testes de integração com infra efêmera e rede isolada
     .env.test.example         ← hosts e credenciais dos containers efêmeros de teste
-    Dockerfile                ← contexto de build = esta pasta
+    docker/                   ← tudo que é Docker do serviço
+      Dockerfile              ← imagem multi-stage; contexto de build = a pasta do serviço (..)
+      Dockerfile.dockerignore ← o que não entra no contexto de build
+      docker-compose.yml      ← ambiente local: account-api, account-worker, account-db (sobe sozinho)
+      docker-compose.platform.yml ← só a ligação com a plataforma (ex.: o worker espera o rabbitmq)
+      docker-compose.test.yml ← testes de integração com infra efêmera e rede isolada
     src/
       domain/                 ← entities/, valueObjects/, domainEvents/, domainServices/
       application/            ← usecases/, dtos/, contracts/
@@ -86,7 +86,7 @@ networks:
 ```
 
 ```yaml
-# backend/<svc>/docker-compose.yml (identical declaration)
+# backend/<svc>/docker/docker-compose.yml (identical declaration)
 networks:
   trading-net:
     name: trading-net
@@ -176,7 +176,7 @@ O tráfego gRPC não é criptografado: fica dentro da `trading-net`. Fora do amb
 
 ## 3. Compose de cada backend
 
-Todo serviço segue o mesmo molde. Exemplo `backend/wallet/docker-compose.yml`:
+Todo serviço segue o mesmo molde. Exemplo `backend/wallet/docker/docker-compose.yml`:
 
 | Container | Comando (dev) | Depende de |
 |---|---|---|
@@ -186,7 +186,9 @@ Todo serviço segue o mesmo molde. Exemplo `backend/wallet/docker-compose.yml`:
 
 Não existe container de migração: as migrações rodam por comando (`make migrate`, §3.3), dentro do container do serviço que já está de pé.
 
-O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e sobe sozinho, desde que a infraestrutura compartilhada já esteja de pé. O que só faz sentido dentro da plataforma (por exemplo, o worker esperar o `rabbitmq` ficar saudável) fica em `docker-compose.platform.yml`, que o `backend/docker-compose.yml` inclui junto: `include: [{ path: [<svc>/docker-compose.yml, <svc>/docker-compose.platform.yml] }]`. A imagem de execução (sem watch, com `dist/`) vem do override `docker-compose.runtime.yml` (§3.2).
+O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e sobe sozinho, desde que a infraestrutura compartilhada já esteja de pé. O que só faz sentido dentro da plataforma (por exemplo, o worker esperar o `rabbitmq` ficar saudável) fica em `docker/docker-compose.platform.yml`, que o `backend/docker-compose.yml` inclui junto: `include: [{ path: [<svc>/docker/docker-compose.yml, <svc>/docker/docker-compose.platform.yml], env_file: <svc>/.env }]`. O `env_file` do `include` é o que permite ao compose ler as variáveis do `.env` do serviço (por exemplo, `${DATABASE_USER}` no Postgres), já que o compose fica em `docker/` e o `.env` na raiz do serviço.
+
+**Compose é só para o ambiente local.** Produção não usa compose: usa a imagem do estágio `runtime` do `Dockerfile` (§5) num orquestrador (§6).
 
 - **Mesma imagem, processos diferentes.** `api` e `worker` escalam de forma independente, porque o workload é diferente: `api` responde request; `worker` consome fila.
 - **Um Postgres por serviço**, no compose do próprio serviço. Banco `wallet`, schema padrão (`public`). Ninguém mais conecta nele. O próprio Postgres cria banco e usuário no primeiro boot, a partir de `DATABASE_NAME`, `DATABASE_USER` e `DATABASE_PASSWORD` do `.env` (sem script de init).
@@ -201,16 +203,17 @@ O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e so
 Mecanismo: **Compose Watch** (`develop.watch`, Docker Compose ≥ 2.22) sincroniza os arquivos alterados para dentro do container em execução, e o `tsx watch` reinicia o processo Node sozinho. Escolhido em vez de bind mount porque não sobrescreve o `node_modules` do container e funciona bem no macOS.
 
 ```yaml
-# backend/wallet/docker-compose.yml (development)
+# backend/wallet/docker/docker-compose.yml (local development)
 services:
   wallet-api:
     container_name: wallet-api
     build:
-      context: .                        # the service folder only
+      context: ..                       # the service folder only
+      dockerfile: docker/Dockerfile
       target: dev
     working_dir: /app
     command: sh -c "npm run proto:gen && npx tsx watch src/infra/api.ts"
-    env_file: .env                      # copied from .env.example (§2.2)
+    env_file: ../.env                   # copied from .env.example (§2.2)
     networks: [trading-net]
     depends_on:
       wallet-db:
@@ -218,17 +221,17 @@ services:
     develop:
       watch:
         - action: sync                  # own code: hot reload via tsx watch
-          path: ./src
+          path: ../src
           target: /app/src
           ignore:
             - infra/contracts/
         - action: sync+restart          # contracts: restart regenerates the gRPC code
-          path: ./src/infra/contracts
+          path: ../src/infra/contracts
           target: /app/src/infra/contracts
         - action: rebuild               # dependencies changed
-          path: ./package.json
+          path: ../package.json
         - action: rebuild
-          path: ./package-lock.json
+          path: ../package-lock.json
         - action: rebuild
           path: ./Dockerfile
 ```
@@ -268,11 +271,11 @@ As migrações ficam em `src/infra/database/migrations/` e **não têm container
 - `make migration` sobe um container avulso com a pasta de migrações do host montada (`-v`), para o arquivo novo aparecer no seu código.
 - Por baixo, cada alvo do `Makefile` é um `docker compose exec <svc>-api npm run migrate…`.
 
-### 3.2 Modo de execução (imagem final)
+### 3.2 Imagem final
 
-`docker-compose.runtime.yml`, ao lado de cada `docker-compose.yml`, sobrescreve só o necessário: `target: runtime`, `command: node dist/infra/api.js` e **sem** `develop`. É o modo usado pelos testes E2E e para validar a imagem que seria implantada.
+A imagem de produção é o estágio `runtime` do `Dockerfile` (§5): `node dist/infra/api.js`, `worker.js` ou `migrate.js`, conforme o processo. Ela não tem compose próprio. Para conferir localmente que ela builda:
 ```bash
-docker compose -f backend/docker-compose.yml -f backend/docker-compose.runtime.yml up -d --build
+docker build -f backend/<svc>/docker/Dockerfile --target runtime backend/<svc>
 ```
 
 ### Processos por serviço
@@ -317,18 +320,18 @@ Tudo pelo `Makefile` de `backend/` (a plataforma inteira) e pelo `Makefile` de c
 | `make env` | Só cria os `.env` que ainda não existem (nunca sobrescreve) |
 | `make deps` | Instala o `node_modules` e gera o código gRPC de cada serviço **na sua máquina**, via container, só para o editor enxergar tipos e imports. Rode de novo quando mudar `package.json` ou um `.proto` |
 
-Um serviço sozinho continua possível, com a infra de pé: `docker compose -f backend/<svc>/docker-compose.yml up --watch`.
+Um serviço sozinho continua possível, com a infra de pé: `docker compose -f backend/<svc>/docker/docker-compose.yml --env-file backend/<svc>/.env up --watch`.
 
 ## 5. Dockerfile de cada serviço
 
 Multi-stage, com testes de unidade dentro do build:
 
 1. **deps** — `npm ci` com devDependencies, a partir do `package.json` e do `package-lock.json` **do serviço**. O contexto de build é só a pasta do serviço: nada de fora dela entra na imagem.
-2. **dev** — `deps` + código-fonte + `tsx`. É o alvo do `docker-compose.yml`: o código é atualizado pelo Compose Watch, sem rebuild (§3.1). Roda como **root**, porque gera arquivos (código do protobuf, arquivos temporários do Vitest) em diretórios criados pela camada `deps`. Só a imagem final é não-root.
+2. **dev** — `deps` + código-fonte + `tsx`. É o alvo do `docker/docker-compose.yml` (só local): o código é atualizado pelo Compose Watch, sem rebuild (§3.1). Roda como **root**, porque gera arquivos (código do protobuf, arquivos temporários do Vitest) em diretórios criados pela camada `deps`. Só a imagem final é não-root.
 3. **build** — gera o código do gRPC (`src/infra/generated/`) a partir dos `.proto` de `src/infra/contracts/`, compila e **roda os testes de unidade**. Teste vermelho = imagem não é gerada.
-4. **runtime** — `node:26-alpine`, só dependências de produção e `dist/`. Usuário não-root (`node`, uid 1000), coberto pelo E2E. Alvo do `docker-compose.runtime.yml` (§3.2).
+4. **runtime** — `node:26-alpine`, só dependências de produção e `dist/`. Usuário não-root (`node`, uid 1000). É a imagem de produção (§3.2, §6).
 
-Testes de integração **não** rodam no build, porque precisam de Postgres/RabbitMQ. Eles rodam no perfil `test` do compose (ver [testes](05-estrategia-de-testes.md#5-como-rodar)).
+Testes de integração **não** rodam no build, porque precisam de Postgres/RabbitMQ. Eles rodam no `docker/docker-compose.test.yml` (ver [testes](05-estrategia-de-testes.md#5-como-rodar)).
 
 ---
 
@@ -357,7 +360,7 @@ Testes de integração **não** rodam no build, porque precisam de Postgres/Rabb
 
 **Passo 1 — Imagens**
 1. Crie um repositório no **Amazon ECR** por serviço.
-2. Gere a imagem no alvo `runtime` do Dockerfile (§5), que é a mesma usada no E2E.
+2. Gere a imagem no alvo `runtime` do `docker/Dockerfile` (§5).
 3. Envie cada imagem para o ECR com uma tag imutável (ex.: o hash do commit).
 
 **Passo 2 — Rede**

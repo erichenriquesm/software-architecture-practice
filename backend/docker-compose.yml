@@ -3,5 +3,6 @@ name: trading
 include:
   - infra/docker-compose.yml
   - path:
-      - account/docker-compose.yml
-      - account/docker-compose.platform.yml
+      - account/docker/docker-compose.yml
+      - account/docker/docker-compose.platform.yml
+    env_file: account/.env

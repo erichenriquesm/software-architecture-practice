@@ -115,8 +115,8 @@ create table account_balance_view (
 ```
 backend/account/
   .env.example  .env.test.example  Makefile (comandos de migração)
-  docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
-  Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
+  docker/                           Dockerfile  Dockerfile.dockerignore  docker-compose.yml  docker-compose.platform.yml  docker-compose.test.yml
+  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
   src/
     domain/
       entities/                     account.ts  aggregateRoot.ts

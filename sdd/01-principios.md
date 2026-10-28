@@ -435,7 +435,7 @@ Ao receber `SIGTERM`: parar de consumir, terminar a mensagem em andamento, dar `
 
 **Regra de independência.** Um serviço:
 - **nunca** importa nada fora da própria pasta (`../` é proibido e o teste de arquitetura quebra se acontecer);
-- tem `package.json` e `package-lock.json` próprios, e um `Dockerfile` cujo contexto de build é só a pasta dele;
+- tem `package.json` e `package-lock.json` próprios, e um `docker/Dockerfile` cujo contexto de build é só a pasta dele;
 - depende da infraestrutura compartilhada (RabbitMQ, Redis, edge) só pela rede `trading-net` e pelos nomes DNS, nunca por arquivo.
 
 **Trade-off aceito.** Uma correção num RNF precisa ser replicada em cada serviço que tem aquele código. Em troca, não existe registro de pacotes, versão para publicar nem serviço arrastando outro numa atualização. **Não existe gerador nem template.** Os serviços são construídos um de cada vez, à mão. Quando um serviço precisa de algo que outro já tem, copia e adapta.
@@ -464,7 +464,7 @@ backend/account/src/infra/contracts/
 ## 7. Docker sempre
 
 - **Tudo roda em container**: serviços, testes, migrações, banco e RabbitMQ. Nada depende de Postgres/RabbitMQ instalado na máquina.
-- **Cada backend tem seu `docker-compose.yml`** com o próprio Postgres e os próprios processos.
+- **Cada backend tem seu `docker/docker-compose.yml`** com o próprio Postgres e os próprios processos. **Compose é só para o ambiente local**; produção usa a imagem `runtime`.
 - **RabbitMQ é único**, num compose de infraestrutura compartilhada, ligado aos serviços por uma rede Docker externa.
 - Detalhes em [04-ambiente-docker.md](04-ambiente-docker.md).
 

@@ -2,9 +2,9 @@ name: account-test
 
 services:
   tests:
-    build: { context: ., target: dev }
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
     command: ["npm", "run", "test:integration"]
-    env_file: .env.test
+    env_file: ../.env.test
     depends_on:
       account-db-test:
         condition: service_healthy
@@ -16,7 +16,7 @@ services:
 
   account-db-test:
     image: postgres:17-alpine
-    env_file: .env.test
+    env_file: ../.env.test
     tmpfs: [/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -27,7 +27,7 @@ services:
 
   account-rabbitmq-test:
     image: rabbitmq:4-management-alpine
-    env_file: .env.test
+    env_file: ../.env.test
     tmpfs: [/var/lib/rabbitmq]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]

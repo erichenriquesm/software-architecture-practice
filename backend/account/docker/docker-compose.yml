@@ -1,16 +1,16 @@
 x-watch: &watch
   watch:
     - action: sync
-      path: ./src
+      path: ../src
       target: /app/src
       ignore: [infra/generated/, infra/contracts/]
     - action: sync+restart
-      path: ./src/infra/contracts
+      path: ../src/infra/contracts
       target: /app/src/infra/contracts
     - action: rebuild
-      path: ./package.json
+      path: ../package.json
     - action: rebuild
-      path: ./package-lock.json
+      path: ../package-lock.json
     - action: rebuild
       path: ./Dockerfile
 
@@ -34,10 +34,10 @@ services:
     networks: [trading-net]
 
   account-api:
-    build: { context: ., target: dev }
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
     container_name: account-api
     command: ["sh", "-c", "npm run proto:gen && npx tsx watch src/infra/api.ts"]
-    env_file: .env
+    env_file: ../.env
     ports:
       - "127.0.0.1:3001:3000"
       - "127.0.0.1:50051:50051"
@@ -53,10 +53,10 @@ services:
     develop: *watch
 
   account-worker:
-    build: { context: ., target: dev }
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
     container_name: account-worker
     command: ["npx", "tsx", "watch", "src/infra/worker.ts"]
-    env_file: .env
+    env_file: ../.env
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3001/health"]
       interval: 5s

@@ -205,8 +205,8 @@ O `check` no banco é a última defesa da invariante 1. A regra de verdade está
 ```
 backend/wallet/
   .env.example  .env.test.example  Makefile (migrações e testes, como no account)
-  docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
-  Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
+  docker/                           Dockerfile  Dockerfile.dockerignore  docker-compose.yml  docker-compose.platform.yml  docker-compose.test.yml
+  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
   src/
     domain/
       entities/                     wallet.ts  reservation.ts  aggregateRoot.ts
