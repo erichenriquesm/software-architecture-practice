@@ -20,6 +20,7 @@ Nada de código, `package.json` ou `Dockerfile` na raiz. O que existe hoje na ra
 
 ```
 backend/
+  Makefile                    ← make up / watch / migrate / ps / logs / down / check (§4)
   docker-compose.yml          ← sobe a plataforma inteira (include de todos os composes)
   docker-compose.runtime.yml  ← override com as imagens finais (E2E)
   infra/                      ← infraestrutura compartilhada; nenhum código de serviço
@@ -304,20 +305,21 @@ Dentro da `trading-net` os containers se acham pelo nome e usam as portas intern
 
 ## 4. Como subir
 
-Plataforma inteira, em desenvolvimento (sem rebuild a cada alteração, §3.1):
-```bash
-docker compose -f backend/docker-compose.yml up --watch
-```
+Tudo pelo `Makefile` de `backend/` (a plataforma inteira) e pelo `Makefile` de cada serviço (as migrações dele, §3.3). Rode dentro de `backend/`:
 
-Um serviço isolado (a infraestrutura compartilhada precisa estar de pé, por causa da rede e do broker):
-```bash
-docker compose -f backend/infra/docker-compose.yml up -d
-```
-```bash
-docker compose -f backend/wallet/docker-compose.yml up --watch
-```
+| Comando | O que faz |
+|---|---|
+| `make up` | Cria os `.env` que faltam a partir dos `.env.example`, builda, sobe infra + serviços, espera ficarem saudáveis e roda `make migrate` em cada serviço |
+| `make watch` | O mesmo, em primeiro plano com Compose Watch (§3.1): alterar código não exige rebuild |
+| `make infra` | Sobe só a infra compartilhada (RabbitMQ, Redis, edge) |
+| `make migrate` | Roda as migrações pendentes de todos os serviços |
+| `make ps` | Lista os containers e a saúde de cada um |
+| `make logs` · `make logs s=account-api` | Segue os logs de tudo ou de um container |
+| `make down` | Para tudo (os volumes ficam) |
+| `make check` | Confere as cópias de contrato e o layout da raiz |
+| `make env` | Só cria os `.env` que ainda não existem (nunca sobrescreve) |
 
----
+Um serviço sozinho continua possível, com a infra de pé: `docker compose -f backend/<svc>/docker-compose.yml up --watch`.
 
 ## 5. Dockerfile de cada serviço
 

@@ -14,7 +14,7 @@ import { migratorSettings } from './settings.js';
 const [command = 'migrate', argument] = process.argv.slice(2);
 
 const print = (verb: string, names: readonly string[]): void => {
-  if (names.length === 0) console.log(`nothing to ${verb}`);
+  if (names.length === 0) console.log('nothing to do');
   for (const name of names) console.log(`${verb}: ${name}`);
 };
 
