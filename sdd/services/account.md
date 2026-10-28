@@ -80,7 +80,7 @@ O passo 2 só acontece para conta recém-criada que ainda não recebeu nenhum `w
 | Publica | `account.created` | `account.events` |
 | Consome | `wallet.balanceChanged` | `account.walletBalances` |
 
-## 9. Dados (`account-db`, schema `account`)
+## 9. Dados (`account-db`)
 
 ```sql
 -- write model
@@ -117,7 +117,6 @@ backend/account/
   .env.example  .env.test.example  Makefile (comandos de migração)
   docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
   Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-  initdb/roles.sh                   cria account_migrator e account_app no primeiro boot do banco
   src/
     domain/
       entities/                     account.ts  aggregateRoot.ts
@@ -169,11 +168,8 @@ HEALTH_PORT=3001
 DATABASE_HOST=account-db
 DATABASE_PORT=5432
 DATABASE_NAME=account
-POSTGRES_PASSWORD=account-postgres-dev
-DATABASE_MIGRATOR_USER=account_migrator
-DATABASE_MIGRATOR_PASSWORD=account-migrator-dev
-DATABASE_USER=account_app
-DATABASE_PASSWORD=account-app-dev
+DATABASE_USER=account
+DATABASE_PASSWORD=account-db-dev
 RABBITMQ_HOST=rabbitmq
 RABBITMQ_USER=account
 RABBITMQ_PASSWORD=account-rabbitmq-dev

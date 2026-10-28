@@ -31,7 +31,6 @@ backend/
     edge/nginx.conf           ← roteamento REST público → serviços
     contracts/                ← originais sem dono: envelope.schema.json, markets.json (+ schema)
   scripts/                    ← só biblioteca padrão do Node, rodados em container
-    check-root-layout.sh
     check-contracts.ts        ← compara cada cópia de contrato com o original do dono
   account/                    ← projeto STANDALONE (pode virar repositório próprio)
     package.json  package-lock.json
@@ -110,7 +109,7 @@ Cada compose tem, ao lado dele, um **`.env.example` versionado**, com os valores
 | Onde | O que tem |
 |---|---|
 | `backend/infra/.env.example` | Usuário e senha de admin do RabbitMQ; usuário e senha de cada serviço no RabbitMQ e no Redis |
-| `backend/<svc>/.env.example` | Hosts (nomes DNS), portas, nome do banco, usuários e senhas do Postgres (superusuário, `<svc>_migrator`, `<svc>_app`), usuário e senha do serviço no RabbitMQ e no Redis, endereço gRPC de quem ele chama, nome e token gRPC do serviço e quem pode chamá-lo (§2.3), nível de log, limites de rate limit |
+| `backend/<svc>/.env.example` | Hosts (nomes DNS), portas, nome do banco, usuário e senha do Postgres (um só por serviço), usuário e senha do serviço no RabbitMQ e no Redis, endereço gRPC de quem ele chama, nome e token gRPC do serviço e quem pode chamá-lo (§2.3), nível de log, limites de rate limit |
 
 Para subir: `cp .env.example .env` em cada pasta. O `.env` está no `.gitignore`; o `.env.example` é a referência e sempre tem todas as variáveis. O compose lê o `.env` com `env_file: .env`.
 
@@ -120,11 +119,8 @@ Exemplo `backend/wallet/.env.example`:
 DATABASE_HOST=wallet-db
 DATABASE_PORT=5432
 DATABASE_NAME=wallet
-POSTGRES_PASSWORD=wallet-postgres-dev
-DATABASE_MIGRATOR_USER=wallet_migrator
-DATABASE_MIGRATOR_PASSWORD=wallet-migrator-dev
-DATABASE_USER=wallet_app
-DATABASE_PASSWORD=wallet-app-dev
+DATABASE_USER=wallet
+DATABASE_PASSWORD=wallet-db-dev
 RABBITMQ_HOST=rabbitmq
 RABBITMQ_USER=wallet
 RABBITMQ_PASSWORD=wallet-rabbitmq-dev
@@ -193,10 +189,10 @@ Não existe container de migração: as migrações rodam por comando (`make mig
 O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e sobe sozinho, desde que a infraestrutura compartilhada já esteja de pé. O que só faz sentido dentro da plataforma (por exemplo, o worker esperar o `rabbitmq` ficar saudável) fica em `docker-compose.platform.yml`, que o `backend/docker-compose.yml` inclui junto: `include: [{ path: [<svc>/docker-compose.yml, <svc>/docker-compose.platform.yml] }]`. A imagem de execução (sem watch, com `dist/`) vem do override `docker-compose.runtime.yml` (§3.2).
 
 - **Mesma imagem, processos diferentes.** `api` e `worker` escalam de forma independente, porque o workload é diferente: `api` responde request; `worker` consome fila.
-- **Um Postgres por serviço**, no compose do próprio serviço. Banco `wallet`, schema `wallet`. Ninguém mais conecta nele.
+- **Um Postgres por serviço**, no compose do próprio serviço. Banco `wallet`, schema padrão (`public`). Ninguém mais conecta nele. O próprio Postgres cria banco e usuário no primeiro boot, a partir de `DATABASE_NAME`, `DATABASE_USER` e `DATABASE_PASSWORD` do `.env` (sem script de init).
 - Configuração por variável de ambiente, vinda do `.env` do serviço (§2.2), usando nomes DNS da `trading-net`. Sem IP.
 - Healthcheck em todo container de longa duração (`/health` no `api`; o `worker` também expõe `/health` numa porta interna).
-- O comando de migração usa o usuário `<svc>_migrator`; os processos `api` e `worker` usam `<svc>_app`, que não altera estrutura ([autenticação §4](08-autenticacao-entre-servicos.md#4-postgres-dois-usu%C3%A1rios-por-servi%C3%A7o)).
+- Um único usuário por serviço no Postgres: o mesmo migra e acessa os dados ([autenticação §4](08-autenticacao-entre-servicos.md#4-postgres-um-usu%C3%A1rio-por-servi%C3%A7o)).
 
 ### 3.1 Desenvolvimento sem rebuild (Compose Watch)
 

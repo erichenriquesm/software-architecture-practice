@@ -1,7 +1,7 @@
 import { createDatabase } from './database/postgres.js';
 import { loadMigrationFiles, makeMigration } from './database/migrationFiles.js';
 import { Migrator } from './database/migrator.js';
-import { migratorSettings } from './settings.js';
+import { postgresSettings } from './settings.js';
 
 /*
  * Laravel-style commands (run inside the account-migrate container):
@@ -40,7 +40,7 @@ if (command === 'fresh' && process.env.NODE_ENV === 'production') {
   process.exit(1);
 }
 
-const db = createDatabase<unknown>(migratorSettings());
+const db = createDatabase<unknown>(postgresSettings());
 try {
   await run(new Migrator(db, () => loadMigrationFiles()));
 } catch (error) {

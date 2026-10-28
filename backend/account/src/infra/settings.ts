@@ -19,12 +19,6 @@ export const postgresSettings = (): PostgresSettings => ({
   password: requiredEnv('DATABASE_PASSWORD'),
 });
 
-export const migratorSettings = (): PostgresSettings => ({
-  ...postgresSettings(),
-  user: requiredEnv('DATABASE_MIGRATOR_USER'),
-  password: requiredEnv('DATABASE_MIGRATOR_PASSWORD'),
-});
-
 export interface RedisSettings {
   readonly host: string;
   readonly port: number;

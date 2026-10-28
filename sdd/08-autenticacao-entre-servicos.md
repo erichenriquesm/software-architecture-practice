@@ -8,7 +8,7 @@ Regra geral: **cada serviço tem credencial própria em cada canal, e cada crede
 |---|---|---|
 | gRPC interno | Nome + token no metadata (§2) | Lista de quem pode chamar cada método |
 | RabbitMQ | Usuário e senha por serviço (§3) | Permissões de configure / write / read |
-| Postgres | Dois usuários por serviço: migração e execução (§4) | Cada usuário só existe no banco do próprio serviço |
+| Postgres | Um usuário por serviço, que migra e acessa os dados (§4) | O usuário só existe no banco do próprio serviço |
 | Redis | Usuário e senha por serviço (§5) | Só chaves com o prefixo do serviço |
 | REST do edge para os serviços | Nenhuma no conceito (rede interna) | §6 |
 
@@ -104,18 +104,13 @@ Como ler: para ligar uma fila própria numa exchange de outro contexto, o Rabbit
 
 ---
 
-## 4. Postgres: dois usuários por serviço
+## 4. Postgres: um usuário por serviço
 
-Cada banco de serviço tem **dois** usuários, para que o processo que atende requisição não possa alterar a estrutura do banco:
+Cada banco de serviço tem **um** usuário, `<svc>` (ex.: `account`), dono do banco: ele roda as migrações e lê/grava os dados.
 
-| Usuário | Usado por | Pode |
-|---|---|---|
-| `<svc>_migrator` | comando de migração (`make migrate`, [ambiente §3.3](04-ambiente-docker.md#33-migrações-estilo-laravel)) | Dono do schema: `CREATE` / `ALTER` / `DROP` |
-| `<svc>_app` | `<svc>-api` e `<svc>-worker` | Só `SELECT`, `INSERT`, `UPDATE`, `DELETE` nas tabelas do schema e uso das sequences (`GRANT` feito pela migração) |
-
-- **Como são criados:** no primeiro boot do `<svc>-db`, o script `backend/<svc>/initdb/roles.sh` (montado em `/docker-entrypoint-initdb.d/`) cria os dois usuários com as senhas do `.env` do serviço. O superusuário (`POSTGRES_PASSWORD`) só é usado nesse momento.
-- Os usuários só existem no banco do próprio serviço. Isso reforça, por credencial, a regra "nenhum serviço lê o banco de outro" ([design estratégico §4](02-design-estrategico.md#4-context-map)).
-- O `market-data` não precisa de `DELETE` fora da reconstrução de projeções; o comando de rebuild roda com o `<svc>_migrator`.
+- **Como é criado:** no primeiro boot do `<svc>-db`, pela própria imagem do Postgres, a partir de `DATABASE_NAME`, `DATABASE_USER` e `DATABASE_PASSWORD` do `.env` do serviço (o compose repassa como `POSTGRES_DB`, `POSTGRES_USER` e `POSTGRES_PASSWORD`). Não há script de init.
+- O usuário só existe no banco do próprio serviço. Isso reforça, por credencial, a regra "nenhum serviço lê o banco de outro" ([design estratégico §4](02-design-estrategico.md#4-context-map)).
+- **Trade-off aceito:** o processo que atende requisição também pode alterar a estrutura do banco. Separar migração e execução em dois usuários exigiria um script de init e duas senhas por serviço; o conceito prefere a simplicidade. Fora do ambiente local, a separação pode voltar sem mudar código: basta a migração rodar com outras credenciais.
 
 ---
 
@@ -170,5 +165,5 @@ Seguem as regras de repetibilidade ([testes §3](05-estrategia-de-testes.md#3-re
 | Nível | Casos |
 |---|---|
 | Unidade | Interceptor: nome e token certos passam · token errado → `UNAUTHENTICATED` · nome desconhecido → `UNAUTHENTICATED` · chamador fora da lista do método → `PERMISSION_DENIED` · método sem entrada → negado · leitura de `GRPC_ALLOWED_CALLERS` (formato inválido impede a subida) |
-| Integração | O fake gRPC (`startFakeGrpcServer`) confere os mesmos headers. Casos: gateway manda nome e token em toda chamada · `UNAUTHENTICATED` e `PERMISSION_DENIED` não têm retry · no broker de teste, publicar na exchange de outro contexto dá `ACCESS_REFUSED` · usuário `<svc>_app` não consegue `ALTER TABLE` · usuário Redis não lê chave de outro prefixo |
+| Integração | O fake gRPC (`startFakeGrpcServer`) confere os mesmos headers. Casos: gateway manda nome e token em toda chamada · `UNAUTHENTICATED` e `PERMISSION_DENIED` não têm retry · no broker de teste, publicar na exchange de outro contexto dá `ACCESS_REFUSED` · usuário Redis não lê chave de outro prefixo |
 | E2E | A plataforma sobe só com os `.env` copiados dos `.env.example`, e os caminhos críticos passam |

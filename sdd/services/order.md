@@ -108,7 +108,7 @@ Sagas em que este serviço participa: **S2** (dono), **S3** (fills), **S4** (don
 
 O relay do outbox publica em ordem de `id`. Isso garante que `order.accepted` sempre sai antes do `order.cancelRequested` da mesma ordem.
 
-## 7. Dados (`order-db`, schema `orders`)
+## 7. Dados (`order-db`)
 
 ```sql
 -- write model (aggregate state)
@@ -161,7 +161,6 @@ backend/order/
   .env.example  .env.test.example
   docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
   Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-  initdb/roles.sh
   migrations/
   src/
     domain/
@@ -205,11 +204,8 @@ API_PORT=3000
 DATABASE_HOST=order-db
 DATABASE_PORT=5432
 DATABASE_NAME=order
-POSTGRES_PASSWORD=order-postgres-dev
-DATABASE_MIGRATOR_USER=order_migrator
-DATABASE_MIGRATOR_PASSWORD=order-migrator-dev
-DATABASE_USER=order_app
-DATABASE_PASSWORD=order-app-dev
+DATABASE_USER=order
+DATABASE_PASSWORD=order-db-dev
 RABBITMQ_HOST=rabbitmq
 RABBITMQ_USER=order
 RABBITMQ_PASSWORD=order-rabbitmq-dev

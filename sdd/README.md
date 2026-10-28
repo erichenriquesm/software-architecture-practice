@@ -44,7 +44,7 @@
 13. **Rate limit por uso** em duas camadas (edge por IP, serviço por conta), com limites mais apertados em autenticação e bloqueio escalonado para quem insiste.
 14. **Convenções:** casos de uso com `XxxInput`/`XxxOutput`, camelCase, Object Calisthenics no domínio, comentários em inglês e só em último caso, e um caso de uso nunca chama outro (comunicação por evento também dentro do serviço).
 15. **Testes repetíveis:** tempo, id e aleatoriedade controlados, infraestrutura efêmera por worker, rede de teste isolada e **fake de rede** (gRPC/HTTP) para qualquer outro microserviço. Só o E2E sobe os serviços de verdade.
-16. **Autenticação entre serviços:** nome + token no metadata do gRPC, com allowlist por método; usuário próprio, com o mínimo de permissão, no RabbitMQ, no Postgres (migração separada da execução) e no Redis. Todas as credenciais de dev ficam no `.env.example` de cada compose. JWT só para a identidade do usuário, quando o login existir.
+16. **Autenticação entre serviços:** nome + token no metadata do gRPC, com allowlist por método; usuário próprio, com o mínimo de permissão, no RabbitMQ, no Postgres (um usuário por serviço, que migra e acessa os dados) e no Redis. Todas as credenciais de dev ficam no `.env.example` de cada compose. JWT só para a identidade do usuário, quando o login existir.
 17. **Serviços independentes:** cada `backend/<svc>/` é um projeto standalone (lockfile e Dockerfile próprios, nada de `../`), que pode virar repositório próprio. **Nenhum código é compartilhado**: os RNF (retry, outbox, rate limit, token gRPC…) ficam em `src/infra/platform/` de cada serviço, escritos à mão, sem gerador nem template (o próximo serviço copia do anterior e adapta), e os contratos têm dono (o produtor) e cópias nos consumidores, verificadas por `scripts/check-contracts`.
 18. **Tudo em Docker**: compose por backend, rede `bridge` única (`trading-net`) com DNS por nome, um `.env.example` por compose com os dados de dev, e desenvolvimento com Compose Watch (alterar código não exige rebuild).
 
@@ -52,7 +52,7 @@
 
 | Fase | Entrega |
 |---|---|
-| 0 | Fundação: **apagar o experimento da raiz** ([Q15](99-decisoes.md#q15)), raiz só com `backend/`, `frontend/` e `sdd/`; `backend/infra/` (RabbitMQ, Redis, edge, `trading-net`, contratos sem dono, `.env.example`); `scripts/` (check-contracts, check-root-layout) |
+| 0 | Fundação: **apagar o experimento da raiz** ([Q15](99-decisoes.md#q15)), raiz só com `backend/`, `frontend/` e `sdd/`; `backend/infra/` (RabbitMQ, Redis, edge, `trading-net`, contratos sem dono, `.env.example`); `scripts/check-contracts.ts` e `Makefile` da plataforma (`make up`, `make check`…) |
 | 1 | `account`, escrito do zero, inclusive `src/infra/platform/`, `test/support/` e o teste de arquitetura |
 | 2 | `wallet` (copia do `account` o que precisar e adapta) |
 | 3 | `order` |

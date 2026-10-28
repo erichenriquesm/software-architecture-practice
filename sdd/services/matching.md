@@ -84,7 +84,7 @@ Sagas em que este serviço participa: **S2** (passo repetível, depois do pivot)
 
 O `bookSnapshot` sai **uma vez por mensagem processada** que mudou o livro (não uma vez por trade), com os níveis agregados por preço exato.
 
-## 6. Dados (`matching-db`, schema `matching`)
+## 6. Dados (`matching-db`)
 
 ```sql
 create table book (
@@ -136,7 +136,6 @@ backend/matching/
   .env.example  .env.test.example
   docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
   Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-  initdb/roles.sh
   migrations/
   src/
     domain/
@@ -176,11 +175,8 @@ HEALTH_PORT=3000
 DATABASE_HOST=matching-db
 DATABASE_PORT=5432
 DATABASE_NAME=matching
-POSTGRES_PASSWORD=matching-postgres-dev
-DATABASE_MIGRATOR_USER=matching_migrator
-DATABASE_MIGRATOR_PASSWORD=matching-migrator-dev
-DATABASE_USER=matching_app
-DATABASE_PASSWORD=matching-app-dev
+DATABASE_USER=matching
+DATABASE_PASSWORD=matching-db-dev
 RABBITMQ_HOST=rabbitmq
 RABBITMQ_USER=matching
 RABBITMQ_PASSWORD=matching-rabbitmq-dev

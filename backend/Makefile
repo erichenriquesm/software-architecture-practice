@@ -8,7 +8,7 @@
 #   make ps                 list the containers and their health
 #   make logs [s=account-api]   follow the logs (of one container when s= is given)
 #   make down               stop everything (volumes are kept)
-#   make check              contract copies and repository root layout
+#   make check              contract copies and repository root layout (only backend/, frontend/, sdd/)
 #   make env                create each .env from its .env.example when it does not exist yet
 
 COMPOSE = docker compose -f docker-compose.yml
@@ -48,6 +48,10 @@ logs:
 down:
 	$(COMPOSE) down
 
+ROOT_ENTRIES = .git .claude .planning .DS_Store .gitignore backend frontend sdd
+
 check:
-	docker run --rm -v "$(CURDIR)/..":/repo -w /repo/backend node:26-alpine \
-	  sh -c 'npx --yes tsx scripts/check-contracts.ts . && cd .. && sh backend/scripts/check-root-layout.sh .'
+	docker run --rm -v "$(CURDIR)":/backend -w /backend node:26-alpine npx --yes tsx scripts/check-contracts.ts .
+	@extra=$$(ls -A .. | grep -vxF $(foreach entry,$(ROOT_ENTRIES),-e $(entry))); \
+	if [ -n "$$extra" ]; then echo "unexpected entries in the repository root: $$extra"; exit 1; fi; \
+	echo "root layout ok"

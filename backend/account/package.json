@@ -6,7 +6,7 @@
     "node": ">=26"
   },
   "scripts": {
-    "proto:gen": "sh scripts/proto-gen.sh",
+    "proto:gen": "rm -rf src/infra/generated && mkdir -p src/infra/generated && protoc --plugin=protoc-gen-ts_proto=node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/infra/generated --ts_proto_opt=outputServices=grpc-js,esModuleInterop=true,importSuffix=.js,useOptionals=messages,env=node -I src/infra/contracts/published/proto -I src/infra/contracts/consumed/proto $(find src/infra/contracts -name '*.proto')",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",

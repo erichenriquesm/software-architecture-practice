@@ -121,7 +121,7 @@ Se o gRPC estiver fora depois das tentativas: no HTTP, `503`; no consumidor, err
 | Consome | `order.voided` | `wallet.orderVoided` |
 | Publica | `wallet.fundsReserved`, `wallet.fundsReservationRejected`, `wallet.balanceChanged` | `wallet.events` |
 
-## 9. Dados (`wallet-db`, schema `wallet`)
+## 9. Dados (`wallet-db`)
 
 ```sql
 create table wallet (
@@ -182,7 +182,6 @@ backend/wallet/
   .env.example  .env.test.example
   docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
   Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-  initdb/roles.sh
   migrations/
   src/
     domain/
@@ -230,11 +229,8 @@ GRPC_PORT=50051
 DATABASE_HOST=wallet-db
 DATABASE_PORT=5432
 DATABASE_NAME=wallet
-POSTGRES_PASSWORD=wallet-postgres-dev
-DATABASE_MIGRATOR_USER=wallet_migrator
-DATABASE_MIGRATOR_PASSWORD=wallet-migrator-dev
-DATABASE_USER=wallet_app
-DATABASE_PASSWORD=wallet-app-dev
+DATABASE_USER=wallet
+DATABASE_PASSWORD=wallet-db-dev
 RABBITMQ_HOST=rabbitmq
 RABBITMQ_USER=wallet
 RABBITMQ_PASSWORD=wallet-rabbitmq-dev

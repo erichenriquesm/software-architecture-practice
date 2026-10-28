@@ -70,7 +70,7 @@ Erros: `404` mercado desconhecido · `422` parâmetro inválido.
 `trade_view` e `candle_1m_view` são atualizadas **na mesma transação**, com inbox por `eventId`: o candle não é somado duas vezes.
 O snapshot dispensa inbox: o `sequence` já torna a aplicação idempotente.
 
-## 8. Dados (`market-data-db`, schema `market_data`)
+## 8. Dados (`market-data-db`)
 
 ```sql
 create table trade_view (
@@ -128,7 +128,6 @@ backend/market-data/
   .env.example  .env.test.example
   docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
   Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-  initdb/roles.sh
   migrations/
   src/
     (sem domain/: não há invariante a proteger, §3)
@@ -163,11 +162,8 @@ API_PORT=3000
 DATABASE_HOST=market-data-db
 DATABASE_PORT=5432
 DATABASE_NAME=market_data
-POSTGRES_PASSWORD=market-data-postgres-dev
-DATABASE_MIGRATOR_USER=market_data_migrator
-DATABASE_MIGRATOR_PASSWORD=market-data-migrator-dev
-DATABASE_USER=market_data_app
-DATABASE_PASSWORD=market-data-app-dev
+DATABASE_USER=market_data
+DATABASE_PASSWORD=market-data-db-dev
 RABBITMQ_HOST=rabbitmq
 RABBITMQ_USER=marketData
 RABBITMQ_PASSWORD=market-data-rabbitmq-dev
