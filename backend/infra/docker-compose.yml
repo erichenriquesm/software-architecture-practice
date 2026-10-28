@@ -1,0 +1,66 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: rabbitmq
+    hostname: rabbitmq
+    entrypoint: ["/usr/local/bin/trading-entrypoint.sh"]
+    env_file: .env
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - ./rabbitmq/entrypoint.sh:/usr/local/bin/trading-entrypoint.sh:ro
+      - ./rabbitmq/definitions.template.json:/etc/rabbitmq/definitions.template.json:ro
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-definitions.conf:ro
+      - trading-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks:
+      - trading-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    entrypoint: ["/usr/local/bin/trading-entrypoint.sh"]
+    env_file: .env
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - ./redis/entrypoint.sh:/usr/local/bin/trading-entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --user healthcheck --pass invalid ping 2>&1 | grep -qE 'WRONGPASS|PONG'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - trading-net
+
+  edge:
+    image: nginx:1.29-alpine
+    container_name: edge
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./edge/nginx.conf:/etc/nginx/nginx.conf:ro
+    tmpfs:
+      - /var/cache/nginx
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - trading-net
+
+networks:
+  trading-net:
+    name: trading-net
+    driver: bridge
+
+volumes:
+  trading-rabbitmq-data:
+    name: trading-rabbitmq-data

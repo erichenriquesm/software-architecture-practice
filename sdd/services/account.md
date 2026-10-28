@@ -37,7 +37,9 @@ Unicidade de e-mail **não** é invariante do agregado (envolve todas as contas)
 | `ProjectWalletBalance` | Handler de evento | `wallet.balanceChanged` → *upsert* em `account_balance_view` se `version` for maior que a gravada. |
 | `AccountExists` | Consulta (gRPC) | `AccountDao.exists(accountId)`. |
 
-Contratos (interfaces em `application/contracts/`): `AccountRepository`, `AccountDao`, `BalanceDao`, `PasswordHasher` (o hash é lento de propósito; o fake deixa o teste de unidade rápido), `WalletGateway`, `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`.
+Contratos (interfaces em `application/contracts/`): `AccountRepository`, `AccountDao`, `AccountBalances` (saldos da conta com o status `ok`/`live`/`unavailable`; implementado pela corrente de fallback do §7), `BalanceProjection` (grava a `account_balance_view`), `PasswordHasher` (o hash é lento de propósito; o fake deixa o teste de unidade rápido), `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`, `Clock`.
+
+O health check (`/health`) não é caso de uso: fica em `infra/http/health.ts`, com uma sonda por dependência.
 
 ## 5. API pública (REST)
 
@@ -119,26 +121,28 @@ backend/account/
   migrations/                       0001_*.sql …
   src/
     domain/
-      entities/account.ts
-      valueObjects/                 fullName.ts  email.ts  cpf.ts  password.ts  passwordHash.ts
-      domainEvents/accountCreated.ts
+      entities/                     account.ts  aggregateRoot.ts
+      valueObjects/                 accountId.ts  fullName.ts  email.ts  cpf.ts  password.ts  passwordHash.ts
+      domainEvents/                 domainEvent.ts  accountCreated.ts
       domainServices/               (vazio por enquanto: nenhuma regra envolve mais de uma entidade)
       errors.ts
     application/
-      usecases/                     signup.ts  getAccount.ts  projectWalletBalance.ts  accountExists.ts
+      usecases/                     signup.ts  getAccount.ts  projectWalletBalance.ts  accountExists.ts  useCase.ts
       dtos/                         signupDto.ts  getAccountDto.ts  projectWalletBalanceDto.ts  accountExistsDto.ts
-      contracts/                    accountRepository.ts  accountDao.ts  balanceDao.ts  passwordHasher.ts
-                                    walletGateway.ts  transactionRunner.ts  domainEventDispatcher.ts  idGenerator.ts
+                                    accountView.ts  balanceView.ts
+      contracts/                    accountRepository.ts  accountDao.ts  accountBalances.ts  balanceProjection.ts
+                                    passwordHasher.ts  transactionRunner.ts  domainEventDispatcher.ts  idGenerator.ts  clock.ts
     infra/
-      http/                         signup e getAccount (rotas REST)
+      http/                         accountRoutes.ts (signup, getAccount, rate limit)  health.ts
       grpc/
-        accountGrpcServer.ts        servidor do Exists
+        accountGrpcServer.ts        servidor do Exists, com o interceptor de nome + token
         wallet/                     grpcWalletGateway.ts  walletAcl.ts  balancesFallbackChain.ts
-      messaging/                    walletBalanceConsumer.ts  outboxEventPublisher.ts
+      messaging/                    walletBalancesConsumer.ts  accountIntegrationEvents.ts
       database/                     kyselyAccountRepository.ts  kyselyAccountDao.ts  kyselyBalanceDao.ts
-                                    balanceProjectionWriter.ts  kyselyTransactionRunner.ts  database.ts
+                                    kyselyBalanceProjection.ts  kyselyTransactionRunner.ts  postgres.ts
+                                    sqlFileMigrationProvider.ts  database.ts
       crypto/argon2PasswordHasher.ts
-      platform/                     resilience/  messaging/  http/  security/
+      platform/                     config/  events/  http/  messaging/  observability/  resilience/  security/
       contracts/
         published/events/account.created.v1.schema.json
         published/proto/account.proto
@@ -146,6 +150,7 @@ backend/account/
         consumed/proto/wallet.proto
         envelope.schema.json
       generated/                    código do .proto (não versionado)
+      composition.ts  settings.ts  system.ts
       api.ts  worker.ts  migrate.ts
   test/
     fakes/                          um fake por contrato de application/contracts/
@@ -159,6 +164,7 @@ Nada é migrado do código experimental da raiz: o serviço é escrito do zero (
 ```bash
 API_PORT=3000
 GRPC_PORT=50051
+HEALTH_PORT=3001
 DATABASE_HOST=account-db
 DATABASE_PORT=5432
 DATABASE_NAME=account

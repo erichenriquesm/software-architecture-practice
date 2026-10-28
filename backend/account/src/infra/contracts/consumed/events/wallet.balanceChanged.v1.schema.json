@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading.local/contracts/wallet.balanceChanged.v1.schema.json",
+  "title": "wallet.balanceChanged v1 payload (final balance state, not a delta)",
+  "type": "object",
+  "required": ["accountId", "assetId", "available", "reserved", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "accountId": { "type": "string", "format": "uuid" },
+    "assetId": { "type": "string", "pattern": "^[A-Z]{3,5}$" },
+    "available": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,8})?$" },
+    "reserved": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,8})?$" },
+    "version": { "type": "integer", "minimum": 1 }
+  }
+}

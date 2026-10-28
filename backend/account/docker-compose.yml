@@ -1,0 +1,91 @@
+x-watch: &watch
+  watch:
+    - action: sync
+      path: ./src
+      target: /app/src
+      ignore: [infra/generated/, infra/contracts/]
+    - action: sync+restart
+      path: ./src/infra/contracts
+      target: /app/src/infra/contracts
+    - action: sync
+      path: ./migrations
+      target: /app/migrations
+    - action: rebuild
+      path: ./package.json
+    - action: rebuild
+      path: ./package-lock.json
+    - action: rebuild
+      path: ./Dockerfile
+
+services:
+  account-db:
+    image: postgres:17-alpine
+    container_name: account-db
+    env_file: .env
+    environment:
+      POSTGRES_USER: postgres
+    volumes:
+      - account-db-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d account"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [trading-net]
+
+  account-migrate:
+    build: { context: ., target: dev }
+    container_name: account-migrate
+    command: ["npx", "tsx", "src/infra/migrate.ts"]
+    env_file: .env
+    depends_on:
+      account-db:
+        condition: service_healthy
+    networks: [trading-net]
+
+  account-api:
+    build: { context: ., target: dev }
+    container_name: account-api
+    command: ["sh", "-c", "npm run proto:gen && npx tsx watch src/infra/api.ts"]
+    env_file: .env
+    ports:
+      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:50051:50051"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      account-migrate:
+        condition: service_completed_successfully
+    networks: [trading-net]
+    develop: *watch
+
+  account-worker:
+    build: { context: ., target: dev }
+    container_name: account-worker
+    command: ["npx", "tsx", "watch", "src/infra/worker.ts"]
+    env_file: .env
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      account-migrate:
+        condition: service_completed_successfully
+    networks: [trading-net]
+    develop: *watch
+
+networks:
+  trading-net:
+    name: trading-net
+    driver: bridge
+
+volumes:
+  account-db-data:
+    name: account-db-data

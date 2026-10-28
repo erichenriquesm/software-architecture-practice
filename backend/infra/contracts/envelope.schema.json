@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading.local/contracts/envelope.schema.json",
+  "title": "Event envelope",
+  "type": "object",
+  "required": ["eventId", "type", "version", "occurredAt", "producer", "correlationId", "causationId", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "type": { "type": "string", "pattern": "^[a-z][A-Za-z]*\\.[a-z][A-Za-z]*$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "producer": { "enum": ["account", "wallet", "order", "matching", "marketData"] },
+    "correlationId": { "type": "string", "format": "uuid" },
+    "causationId": { "type": ["string", "null"], "format": "uuid" },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": false
+}

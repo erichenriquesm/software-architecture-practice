@@ -25,10 +25,10 @@ backend/
   infra/                      ← infraestrutura compartilhada; nenhum código de serviço
     docker-compose.yml        ← RabbitMQ único + Redis + edge proxy + rede trading-net
     .env.example              ← credenciais de dev do RabbitMQ e do Redis (§2.2)
-    rabbitmq/                 ← configuração do broker
+    rabbitmq/                 ← definitions.template.json + entrypoint.sh (gera o definitions.json com as senhas do .env)
+    redis/entrypoint.sh       ← gera o users.acl com as senhas do .env
     edge/nginx.conf           ← roteamento REST público → serviços
     contracts/                ← originais sem dono: envelope.schema.json, markets.json (+ schema)
-    verify/                   ← testes da própria infra (projeto standalone pequeno)
   scripts/                    ← só biblioteca padrão do Node, rodados em container
     check-root-layout.sh
     check-contracts.ts        ← compara cada cópia de contrato com o original do dono

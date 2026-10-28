@@ -1,0 +1,138 @@
+{
+  "vhosts": [
+    {
+      "name": "trading"
+    }
+  ],
+  "users": [
+    {
+      "name": "admin",
+      "password_hash": "__ADMIN_HASH__",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": [
+        "administrator"
+      ]
+    },
+    {
+      "name": "account",
+      "password_hash": "__ACCOUNT_HASH__",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": []
+    },
+    {
+      "name": "wallet",
+      "password_hash": "__WALLET_HASH__",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": []
+    },
+    {
+      "name": "order",
+      "password_hash": "__ORDER_HASH__",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": []
+    },
+    {
+      "name": "matching",
+      "password_hash": "__MATCHING_HASH__",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": []
+    },
+    {
+      "name": "marketData",
+      "password_hash": "__MARKETDATA_HASH__",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": []
+    }
+  ],
+  "permissions": [
+    {
+      "user": "admin",
+      "vhost": "trading",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    },
+    {
+      "user": "account",
+      "vhost": "trading",
+      "configure": "^(account\\.events|account\\..*)$",
+      "write": "^(account\\.events|account\\..*|retry)$",
+      "read": "^(account\\..*|wallet\\.events|retry)$"
+    },
+    {
+      "user": "wallet",
+      "vhost": "trading",
+      "configure": "^(wallet\\.events|wallet\\..*)$",
+      "write": "^(wallet\\.events|wallet\\..*|retry)$",
+      "read": "^(wallet\\..*|account\\.events|order\\.events|matching\\.events|retry)$"
+    },
+    {
+      "user": "order",
+      "vhost": "trading",
+      "configure": "^(order\\.events|order\\..*)$",
+      "write": "^(order\\.events|order\\..*|retry)$",
+      "read": "^(order\\..*|wallet\\.events|matching\\.events|retry)$"
+    },
+    {
+      "user": "matching",
+      "vhost": "trading",
+      "configure": "^(matching\\.events|matching\\..*)$",
+      "write": "^(matching\\.events|matching\\..*|retry)$",
+      "read": "^(matching\\..*|order\\.events|retry)$"
+    },
+    {
+      "user": "marketData",
+      "vhost": "trading",
+      "configure": "^marketData\\..*$",
+      "write": "^(marketData\\..*|retry)$",
+      "read": "^(marketData\\..*|matching\\.events|retry)$"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "account.events",
+      "vhost": "trading",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "wallet.events",
+      "vhost": "trading",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "order.events",
+      "vhost": "trading",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "matching.events",
+      "vhost": "trading",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "retry",
+      "vhost": "trading",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ]
+}
