@@ -37,7 +37,7 @@ O front só conhece o **edge** ([design estratégico](02-design-estrategico.md))
 
 As dependências entram com a mesma regra do backend: versão exata, aprovada antes de entrar no `package.json`.
 
-O front é um **repositório próprio** (`software-architecture-practice-frontend`), clonado em `frontend/` do guarda-chuva, como cada serviço em `backend/` ([README, decisão 17](README.md)). Roda em Docker, num compose dele na `trading-net`, e o edge serve `/` a partir dele, na mesma origem da API (o cookie de sessão é `SameSite=Strict`). Alterar código não exige rebuild (Compose Watch + HMR do Vite). As rotas do front são em português (`/mercado`, `/carteira`, `/ordens`) e não colidem com as da API.
+O front é um **repositório próprio** (`software-architecture-practice-frontend`), clonado em `frontend/` do guarda-chuva, como cada serviço em `backend/` ([README, decisão 17](README.md)). Roda em Docker, num compose dele na `trading-net`, com **porta própria** (`http://localhost:5173`); o edge continua só com a API (`8080`). Para o browser existe uma origem só: o dev server do Vite repassa as rotas da API ao edge (`server.proxy`), e a imagem de produção faz o mesmo com o nginx dela. Sem CORS, e o cookie `SameSite=Strict` continua de primeira parte. Alterar código não exige rebuild (Compose Watch + HMR do Vite). As rotas do front são em português (`/mercado`, `/carteira`, `/ordens`) e não colidem com as da API.
 
 ---
 
