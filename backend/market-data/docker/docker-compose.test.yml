@@ -1,0 +1,53 @@
+name: market-data-test
+
+services:
+  tests:
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
+    command: ["npm", "run", "test:integration"]
+    env_file: ../.env.test
+    depends_on:
+      market-data-db-test:
+        condition: service_healthy
+      market-data-rabbitmq-test:
+        condition: service_healthy
+      market-data-redis-test:
+        condition: service_healthy
+    networks: [market-data-test-net]
+
+  market-data-db-test:
+    image: postgres:17-alpine
+    env_file: ../.env.test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [market-data-test-net]
+
+  market-data-rabbitmq-test:
+    image: rabbitmq:4-management-alpine
+    env_file: ../.env.test
+    tmpfs: [/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 10s
+      retries: 40
+    networks: [market-data-test-net]
+
+  market-data-redis-test:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [market-data-test-net]
+
+networks:
+  market-data-test-net:
+    name: market-data-test-net
+    driver: bridge
+    internal: true

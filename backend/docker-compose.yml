@@ -18,3 +18,7 @@ include:
       - matching/docker/docker-compose.yml
       - matching/docker/docker-compose.platform.yml
     env_file: matching/.env
+  - path:
+      - market-data/docker/docker-compose.yml
+      - market-data/docker/docker-compose.platform.yml
+    env_file: market-data/.env
