@@ -59,31 +59,41 @@ Transição inválida → `InvalidOrderTransitionError`.
 
 ## 4. Casos de uso
 
-Os casos de uso têm nome de **intenção**, não de evento: nenhum sabe se foi chamado por HTTP, por fila ou por job. Quem liga o gatilho ao caso de uso é o adapter de entrada.
+Os casos de uso têm nome de **intenção**, não de evento: nenhum sabe se foi chamado por HTTP, por fila ou por job. Quem liga o gatilho ao caso de uso é o adapter de entrada. Regra de DTO ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram DTO.
 
-| Caso de uso | Input → Output | Adapter de entrada (gatilho) | Passos |
+| Caso de uso | Assinatura | Adapter de entrada (gatilho) | Passos |
 |---|---|---|---|
-| `PlaceOrder` | `PlaceOrderInput` → `PlaceOrderOutput { orderId, status }` | REST `POST /place_order` | Valida VOs e `MarketFilters` → `Order.place` → salva → despacha `OrderPlaced`. |
-| `CancelOrder` | `CancelOrderInput` → `CancelOrderOutput { orderId, status }` | REST `POST /cancel_order` | Carrega → confere `accountId` dono → `requestCancel` → salva → despacha `OrderVoided` (estava `pending`) ou `OrderCancelRequested` (estava no livro). |
-| `AcceptOrder` | `AcceptOrderInput { orderId }` → `void` | consumer `order.fundsReservation` (`wallet.fundsReserved`) | `markReserved` → despacha `OrderAccepted`. |
-| `RejectOrder` | `RejectOrderInput { orderId, reason }` → `void` | consumer `order.fundsReservation` (`wallet.fundsReservationRejected`) | `markRejected`. |
-| `ExpireOrder` | `ExpireOrderInput { orderId }` → `void` | job `expirePendingOrdersJob` (a cada 10 s) | O job lista as ordens `pending` vencidas (`OrderDao`) e chama `ExpireOrder` **uma vez por ordem**. O caso de uso faz `void(EXPIRED)` → despacha `OrderVoided`. |
-| `ApplyFill` | `ApplyFillInput { orderId, tradeId, quantity, price }` → `void` | consumer `order.matchingResults` (`matching.tradeExecuted`) | O consumer chama `ApplyFill` **duas vezes** (ordem de compra e de venda), cada uma na sua transação, inbox `eventId:orderId`. |
-| `RegisterRemoval` | `RegisterRemovalInput { orderId, remainingQuantity, reason }` → `void` | consumer `order.matchingResults` (`matching.orderRemoved`) | `markRemoved`. |
-| `RevertCancelRequest` | `RevertCancelRequestInput { orderId }` → `void` | consumer `order.matchingResults` (`matching.orderCancelRejected`) | `cancelRejected`. |
-| `GetOrders` | `GetOrdersInput { accountId, status? }` → `GetOrdersOutput` | REST `GET /accounts/:id/orders` | `OrderDao.listByAccount` → `OrderView[]` → Output. |
-| `GetOrder` | `GetOrderInput { orderId }` → `GetOrderOutput` | REST `GET /orders/:id` | `OrderDao.findById`. |
+| `PlaceOrder` | `execute(input: PlaceOrderInput): string` (o `orderId`) | REST `POST /place_order` | Valida VOs e `MarketFilters` → `Order.place` → salva → despacha `OrderPlaced`. A ordem nasce `pending`. |
+| `CancelOrder` | `execute(orderId, accountId): OrderStatus` | REST `POST /cancel_order` | Carrega → confere o dono (`NotOrderOwnerError` → `403`) → `requestCancel` → salva → despacha `OrderVoided` (estava `pending`) ou `OrderCancelRequested` (estava no livro). Devolve o status novo (`cancelled` ou `cancelling`). |
+| `AcceptOrder` | `execute(orderId): void` | consumer `order.fundsReservation` (`wallet.fundsReserved`) | `markReserved` → despacha `OrderAccepted` (pivot da S2). |
+| `RejectOrder` | `execute(orderId, reason): void` | consumer `order.fundsReservation` (`wallet.fundsReservationRejected`) | `markRejected`. |
+| `ExpireOrder` | `execute(orderId): void` | job `expirePendingOrders` (a cada `EXPIRE_PENDING_ORDERS_INTERVAL`) | O job lista as ordens `pending` vencidas (`OrderDao`) e chama `ExpireOrder` **uma vez por ordem**. O caso de uso faz `void(EXPIRED)` → despacha `OrderVoided`. |
+| `ApplyFill` | `execute(input: ApplyFillInput): void` | consumer `order.matchingResults` (`matching.tradeExecuted`) | O consumer chama `ApplyFill` **duas vezes** (ordem de compra e de venda), cada uma na sua transação, inbox `eventId:orderId`. |
+| `RegisterRemoval` | `execute(input: RegisterRemovalInput): void` | consumer `order.matchingResults` (`matching.orderRemoved`) | `markRemoved`. |
+| `RevertCancelRequest` | `execute(orderId): void` | consumer `order.matchingResults` (`matching.orderCancelRejected`) | `cancelRejected`. |
+| `GetOrders` | `execute(accountId, status?): OrderView[]` | REST `GET /accounts/:id/orders` | `OrderDao.listByAccount`. |
+| `GetOrder` | `execute(orderId): OrderView` | REST `GET /orders/:id` | `OrderDao.findById`; `404` se não existir. |
 
-Reações aos eventos de domínio (registradas no composition root, [princípios §2.1](../01-principios.md#21-eventos-entre-casos-de-uso-event-driven-interno)):
+DTOs (`application/dtos/`):
 
-| Evento de domínio | Handler transacional (mesma transação) |
-|---|---|
-| Todos os eventos de `Order` | `OrderViewProjector` atualiza a `order_view` (projeção síncrona) |
-| `OrderPlaced`, `OrderAccepted`, `OrderCancelRequested`, `OrderVoided` | `IntegrationEventMapper` grava `order.placed`, `order.accepted.<m>`, `order.cancelRequested.<m>`, `order.voided` no outbox |
+| DTO | Campos | Usado por |
+|---|---|---|
+| `PlaceOrderInput` | `accountId, marketId, side, quantity, price` | `PlaceOrder` |
+| `ApplyFillInput` | `orderId, tradeId, quantity, price` | `ApplyFill` |
+| `RegisterRemovalInput` | `orderId, remainingQuantity, reason` | `RegisterRemoval` |
+| `OrderView` | `orderId, accountId, marketId, side, quantity, price, fillQuantity, fillPrice, timestamp, status, statusReason` | `GetOrders`, `GetOrder` (modelo de leitura do DAO) |
+
+**Projeção síncrona.** O `KyselyOrderRepository.save` grava a tabela `order` **e** a `order_view` na mesma transação (o `OrderViewProjector` é chamado por ele). Assim toda mudança de estado chega à leitura, inclusive as que não geram evento (rejeição, fill, remoção), sem um handler por tipo de evento.
+
+**Reações aos eventos de domínio:** o `orderIntegrationEvents` (handler transacional) grava no outbox `order.placed` (`OrderPlaced`), `order.accepted.<m>` (`OrderAccepted`), `order.cancelRequested.<m>` (`OrderCancelRequested`) e `order.voided` (`OrderVoided`).
+
+**Concorrência:** cada ordem tem `version` (lock otimista), porque o evento do `wallet` e o cancelamento do usuário podem chegar juntos. Conflito → recarrega e tenta de novo (`retryOnConflict`, até 3×); persistindo, `409` no HTTP e retry na fila.
+
+**Preço médio:** `fillPrice = fillValue / fillQuantity` é a única conta que pode não ser exata (`302 / 3`). Ela só existe na leitura (`order_view`), arredondada em 8 casas (meio para o par). O agregado guarda `fillValue` exato e nunca decide nada pelo preço médio.
 
 As regras "conta existe" e "saldo suficiente considerando ordens em aberto" do objetivo são garantidas pelo `wallet` na reserva (§5.2 do [design estratégico](../02-design-estrategico.md#52-placeorder-saga-coreografada)). Por isso o `PlaceOrder` responde `pending`, e não `open`.
 
-Contratos (interfaces em `application/contracts/`): `OrderRepository`, `OrderDao`, `MarketCatalog`, `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`, `Clock`.
+Contratos (interfaces em `application/contracts/`): `OrderRepository` (`findById`, `save` com `version`), `OrderDao` (`findById`, `listByAccount`, `listPendingCreatedBefore`), `MarketCatalog` (filtros do mercado lidos do `markets.json`), `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`, `Clock`. O health check fica em `infra/http/health.ts`.
 
 Sagas em que este serviço participa: **S2** (dono), **S3** (fills), **S4** (dono). Ver [06-sagas.md](../06-sagas.md).
 
@@ -91,8 +101,8 @@ Sagas em que este serviço participa: **S2** (dono), **S3** (fills), **S4** (don
 
 | Método | Rota | Entrada | Saída | Erros |
 |---|---|---|---|---|
-| POST | `/place_order` | `marketId, accountId, side, quantity, price` | `202 { orderId, status }` | `422` |
-| POST | `/cancel_order` | `orderId, accountId` | `202 { orderId, status }` (`cancelled` se estava `pending`; `cancelling` se estava no livro) | `404` · `403` não é dono · `409` status não permite |
+| POST | `/place_order` | `marketId, accountId, side, quantity, price` (`quantity` e `price` como string decimal) | `202 { orderId, status: "pending" }` | `422` |
+| POST | `/cancel_order` | `orderId, accountId` | `202 { orderId, status }` (`cancelled` se estava `pending`; `cancelling` se estava no livro) | `404` · `403` não é dono · `409` status não permite ou conflito de concorrência persistente |
 | GET | `/accounts/:accountId/orders?status=` | — | `200 [{ orderId, marketId, side, quantity, price, fillQuantity, fillPrice, timestamp, status, statusReason }]` | — |
 | GET | `/orders/:orderId` | — | `200 { ...mesmos campos }` | `404` |
 
@@ -107,6 +117,10 @@ Sagas em que este serviço participa: **S2** (dono), **S3** (fills), **S4** (don
 | Consome | `matching.tradeExecuted`, `matching.orderRemoved`, `matching.orderCancelRejected` | `order.matchingResults` |
 
 O relay do outbox publica em ordem de `id`. Isso garante que `order.accepted` sempre sai antes do `order.cancelRequested` da mesma ordem.
+
+Payloads publicados ([mensageria §3](../03-mensageria.md#3-cat%C3%A1logo-de-eventos-v1)): os schemas de `order.placed` e `order.voided` são **os mesmos bytes** das cópias que o `wallet` já guarda (o `order` vira o dono). `order.accepted` e `order.cancelRequested` ainda não têm consumidor construído (o `matching`); quando ele existir, guarda cópia deles.
+
+A fila `order.matchingResults` recebe três tipos de evento num consumer só, que decide pelo `type`. O `tradeExecuted` vira duas partes (ordem de compra e de venda), cada uma com sua transação e chave de inbox `eventId:orderId`; os outros, uma parte.
 
 ## 7. Dados (`order-db`)
 
@@ -158,40 +172,43 @@ Por que duas tabelas: a de escrita guarda o que o agregado precisa para decidir 
 
 ```
 backend/order/
-  .env.example  .env.test.example
+  .env.example  .env.test.example  Makefile (migrações e testes)
   docker/                           Dockerfile  Dockerfile.dockerignore  docker-compose.yml  docker-compose.platform.yml  docker-compose.test.yml
   package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-  migrations/
   src/
     domain/
-      entities/order.ts
-      valueObjects/                 orderStatus.ts  marketId.ts  side.ts  quantity.ts  price.ts  marketFilters.ts
-      domainEvents/                 orderPlaced.ts  orderAccepted.ts  orderCancelRequested.ts  orderVoided.ts
+      entities/                     order.ts  aggregateRoot.ts
+      valueObjects/                 orderId.ts  accountId.ts  marketId.ts  side.ts  quantity.ts  price.ts  marketFilters.ts  orderStatus.ts
+      domainEvents/                 domainEvent.ts  orderPlaced.ts  orderAccepted.ts  orderCancelRequested.ts  orderVoided.ts
       domainServices/               (vazio por enquanto: toda regra cabe no agregado Order)
       errors.ts
     application/
-      usecases/                     placeOrder.ts  cancelOrder.ts  acceptOrder.ts  rejectOrder.ts  expireOrder.ts
-                                    applyFill.ts  registerRemoval.ts  revertCancelRequest.ts  getOrders.ts  getOrder.ts
-      dtos/                         um <useCase>Dto.ts por caso de uso  ·  orderView.ts
+      usecases/                     placeOrder.ts  cancelOrder.ts  acceptOrder.ts  rejectOrder.ts  expireOrder.ts  applyFill.ts
+                                    registerRemoval.ts  revertCancelRequest.ts  getOrders.ts  getOrder.ts
+                                    useCase.ts  retryOnConflict.ts  orderStore.ts (carregar e salvar+despachar, comum aos comandos)
+      dtos/                         placeOrderDto.ts  applyFillDto.ts  registerRemovalDto.ts  orderView.ts
       contracts/                    orderRepository.ts  orderDao.ts  marketCatalog.ts  transactionRunner.ts
                                     domainEventDispatcher.ts  idGenerator.ts  clock.ts
     infra/
-      http/                         place_order, cancel_order, GET de ordens (rotas REST)
+      http/                         orderRoutes.ts (place, cancel, consultas, rate limit)  health.ts
       messaging/
-        consumers/                  fundsReservationConsumer.ts  matchingResultsConsumer.ts
-        integrationEventMapper.ts  outboxEventPublisher.ts
-      scheduler/expirePendingOrdersJob.ts
-      database/                     kyselyOrderRepository.ts  kyselyOrderDao.ts  orderViewProjector.ts
-                                    kyselyTransactionRunner.ts  database.ts
-      catalog/jsonMarketCatalog.ts  lê o markets.json na subida
-      platform/                     resilience/  messaging/  http/   (copiados e adaptados; sem gRPC, sem security/)
+        consumers/                  fundsReservationConsumer.ts  matchingResultsConsumer.ts  consumedEvent.ts
+        orderIntegrationEvents.ts   domain event → outbox
+      scheduler/expirePendingOrders.ts
+      database/                     kyselyOrderRepository.ts  orderViewProjector.ts  kyselyOrderDao.ts
+                                    kyselyTransactionRunner.ts  postgres.ts  database.ts  migrator.ts  migrationFiles.ts
+        migrations/                 outbox, inbox, idempotency_key, order, order_view
+      catalog/jsonMarketCatalog.ts  lê e valida o markets.json na subida
+      platform/                     copiados do wallet (inclui Consumer com partes e reconexão ao RabbitMQ); sem gRPC
       contracts/
         published/events/           order.placed.v1  order.accepted.v1  order.cancelRequested.v1  order.voided.v1
         consumed/events/            wallet.fundsReserved.v1  wallet.fundsReservationRejected.v1
                                     matching.tradeExecuted.v1  matching.orderRemoved.v1  matching.orderCancelRejected.v1
-        envelope.schema.json  markets.json
+        envelope.schema.json  markets.json  markets.schema.json
+      composition.ts  settings.ts  system.ts
       api.ts  worker.ts  migrate.ts
   test/
+    unit/  integration/             espelham src/
     fakes/  support/
 ```
 
@@ -201,6 +218,7 @@ O `order` não tem gRPC: não expõe nem chama nenhum método síncrono.
 
 ```bash
 API_PORT=3000
+HEALTH_PORT=3001
 DATABASE_HOST=order-db
 DATABASE_PORT=5432
 DATABASE_NAME=order
@@ -227,5 +245,5 @@ LOG_LEVEL=debug
 | Nível | Casos |
 |---|---|
 | Unidade | Cada linha da tabela de status · preço médio com vários fills · fill acima da quantidade é recusado · `requestCancel` em `filled`/`rejected` é recusado · **cancelamento com fill atrasado**: `removed` antes do último `trade` termina em `cancelled` com os números certos · `cancelRejected` volta a `filled` · `void(EXPIRED)` só em `pending` e depois do timeout · cancelar em `pending` termina `cancelled` e publica `order.voided` · `fundsReserved` depois de `voided` é ignorado · preço fora do tick, quantidade fora do step e valor abaixo do mínimo são rejeitados · remoção por STP termina `cancelled` com motivo · `PlaceOrder` despacha `OrderPlaced` · `AcceptOrder` despacha `OrderAccepted`, e o `IntegrationEventMapper` grava `order.accepted.<m>` no outbox · `PlaceOrder` não conhece nenhum outro caso de uso (teste de arquitetura) |
-| Integração | `order` e `order_view` gravadas na mesma transação (falha no meio não deixa nenhuma) · `OrderDao` filtra por status e ordena por data · inbox `eventId:orderId` impede fill duplicado · outbox publica `accepted` antes de `cancelRequested` |
-| Contrato | Eventos publicados e consumidos validam nos schemas |
+| Integração | `order` e `order_view` gravadas na mesma transação (falha no meio não deixa nenhuma) · `OrderDao` filtra por status e ordena por data · inbox `eventId:orderId` impede fill duplicado · outbox publica `accepted` antes de `cancelRequested` · HTTP: `202`, `403` de quem não é dono, `409` de status que não permite cancelar · job de expiração publica `order.voided` · migrações sobem e descem |
+| Contrato | Eventos publicados e consumidos validam nos schemas · `order.placed` e `order.voided` publicados são idênticos às cópias do `wallet` (`make check`) |
