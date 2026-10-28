@@ -1,0 +1,42 @@
+name: matching-test
+
+services:
+  tests:
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
+    command: ["npm", "run", "test:integration"]
+    env_file: ../.env.test
+    depends_on:
+      matching-db-test:
+        condition: service_healthy
+      matching-rabbitmq-test:
+        condition: service_healthy
+    networks: [matching-test-net]
+
+  matching-db-test:
+    image: postgres:17-alpine
+    env_file: ../.env.test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [matching-test-net]
+
+  matching-rabbitmq-test:
+    image: rabbitmq:4-management-alpine
+    env_file: ../.env.test
+    tmpfs: [/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 10s
+      retries: 40
+    networks: [matching-test-net]
+
+
+networks:
+  matching-test-net:
+    name: matching-test-net
+    driver: bridge
+    internal: true

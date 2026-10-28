@@ -14,3 +14,7 @@ include:
       - order/docker/docker-compose.yml
       - order/docker/docker-compose.platform.yml
     env_file: order/.env
+  - path:
+      - matching/docker/docker-compose.yml
+      - matching/docker/docker-compose.platform.yml
+    env_file: matching/.env

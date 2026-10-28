@@ -308,7 +308,7 @@ Tudo pelo `Makefile` de `backend/` (a plataforma inteira) e pelo `Makefile` de c
 
 | Comando | O que faz |
 |---|---|
-| `make up` | Cria os `.env` que faltam a partir dos `.env.example`, builda, sobe infra + serviços, espera ficarem saudáveis e roda `make migrate` em cada serviço |
+| `make up` | Cria os `.env` que faltam a partir dos `.env.example`, instala as dependências do editor dos serviços que ainda não têm `node_modules` (como `make deps`), builda, sobe infra + serviços, espera ficarem saudáveis e roda `make migrate` em cada serviço |
 | `make watch` | O mesmo, em primeiro plano com Compose Watch (§3.1): alterar código não exige rebuild |
 | `make infra` | Sobe só a infra compartilhada (RabbitMQ, Redis, edge) |
 | `make migrate` | Roda as migrações pendentes de todos os serviços |

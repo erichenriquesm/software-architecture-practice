@@ -1,7 +1,7 @@
 # Whole platform: shared infra (RabbitMQ, Redis, edge) + every service in backend/.
 # Each service also has its own Makefile for its migrations (backend/<service>/Makefile).
 #
-#   make up                 create missing .env files, build and start everything, then migrate every service
+#   make up                 create missing .env files and editor dependencies, build and start everything, then migrate every service
 #   make watch              same, in the foreground with Compose Watch (code changes without rebuild)
 #   make infra              start only the shared infra
 #   make migrate            run the pending migrations of every service
@@ -17,7 +17,7 @@ COMPOSE = docker compose -f docker-compose.yml
 SERVICES = $(patsubst %/Makefile,%,$(wildcard */Makefile))
 ENV_EXAMPLES = $(wildcard infra/.env.example */.env.example */.env.test.example)
 
-.PHONY: up watch infra migrate ps logs down check env deps test
+.PHONY: up watch infra migrate ps logs down check env deps deps-missing test
 
 env:
 	@for example in $(ENV_EXAMPLES); do \
@@ -25,11 +25,11 @@ env:
 	  if [ ! -f "$$target" ]; then cp "$$example" "$$target" && echo "created $$target"; fi; \
 	done
 
-up: env
+up: env deps-missing
 	$(COMPOSE) up -d --build --wait
 	@$(MAKE) --no-print-directory migrate
 
-watch: env
+watch: env deps-missing
 	$(COMPOSE) up --build --watch
 
 infra: env
@@ -47,6 +47,12 @@ test: env
 	  $(MAKE) --no-print-directory -C $$service test || exit 1; \
 	done
 	@$(MAKE) --no-print-directory check
+
+# Only the services whose node_modules is missing (a new service, a fresh clone): keeps `make up` fast.
+deps-missing:
+	@for service in $(SERVICES); do \
+	  if [ ! -d "$$service/node_modules/@types/node" ]; then echo "== $$service (editor dependencies)"; $(MAKE) --no-print-directory -C $$service deps || exit 1; fi; \
+	done
 
 deps:
 	@for service in $(SERVICES); do \

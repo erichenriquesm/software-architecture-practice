@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading.local/contracts/matching.bookSnapshot.v1.schema.json",
+  "title": "matching.bookSnapshot v1 payload (full state of the book levels, not a delta)",
+  "type": "object",
+  "required": [
+    "marketId",
+    "sequence",
+    "bids",
+    "asks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "marketId": {
+      "type": "string",
+      "pattern": "^[A-Z]{3,5}-[A-Z]{3,5}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "bids": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "price",
+          "quantity"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "price": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]{1,8})?$"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]{1,8})?$"
+          }
+        }
+      }
+    },
+    "asks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "price",
+          "quantity"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "price": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]{1,8})?$"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]{1,8})?$"
+          }
+        }
+      }
+    }
+  }
+}

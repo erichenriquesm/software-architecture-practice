@@ -1,0 +1,62 @@
+x-watch: &watch
+  watch:
+    - action: sync
+      path: ../src
+      target: /app/src
+      ignore: [infra/generated/, infra/contracts/]
+    - action: sync+restart
+      path: ../src/infra/contracts
+      target: /app/src/infra/contracts
+    - action: rebuild
+      path: ../package.json
+    - action: rebuild
+      path: ../package-lock.json
+    - action: rebuild
+      path: ./Dockerfile
+
+services:
+  matching-db:
+    image: postgres:17-alpine
+    container_name: matching-db
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - matching-db-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5436:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [trading-net]
+
+  # The only process: no public API, /health is served by the worker itself
+  matching-worker:
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
+    container_name: matching-worker
+    command: ["npx", "tsx", "watch", "src/infra/worker.ts"]
+    env_file: ../.env
+    ports:
+      - "127.0.0.1:3004:3001"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      matching-db:
+        condition: service_healthy
+    networks: [trading-net]
+    develop: *watch
+
+networks:
+  trading-net:
+    name: trading-net
+    driver: bridge
+
+volumes:
+  matching-db-data:
+    name: matching-db-data

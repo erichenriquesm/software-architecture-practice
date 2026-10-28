@@ -1,0 +1,46 @@
+{
+  "name": "matching",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "proto:gen": "echo 'order has no .proto contracts'",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "arch": "depcruise src --config .dependency-cruiser.cjs",
+    "test:unit": "vitest run",
+    "test:integration": "TEST_SUITE=integration vitest run",
+    "check": "npm run proto:gen && npm run typecheck && npm run lint && npm run arch && npm run test:unit",
+    "db:types": "kysely-codegen --dialect postgres --out-file src/infra/database/database.ts",
+    "migrate": "tsx src/infra/migrate.ts migrate",
+    "migrate:rollback": "tsx src/infra/migrate.ts rollback",
+    "migrate:status": "tsx src/infra/migrate.ts status",
+    "migrate:fresh": "tsx src/infra/migrate.ts fresh",
+    "make:migration": "tsx src/infra/migrate.ts make"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "amqplib": "2.2.0",
+    "decimal.js": "10.6.0",
+    "fastify": "5.12.7",
+    "kysely": "0.29.7",
+    "pg": "8.23.1",
+    "uuid": "14.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/pg": "8.23.1",
+    "@vitest/coverage-v8": "5.0.5",
+    "dependency-cruiser": "18.7.0",
+    "eslint": "10.13.0",
+    "kysely-codegen": "0.20.0",
+    "tsx": "4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.0.5"
+  }
+}
