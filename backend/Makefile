@@ -93,7 +93,7 @@ projections-rebuild:
 	$(MAKE) -C market-data projections-rebuild
 
 check:
-	docker run --rm -v "$(CURDIR)":/backend -w /backend node:26-alpine npx --yes tsx scripts/check-contracts.ts .
+	docker run --rm -v "$(CURDIR)":/backend -w /backend node:26-alpine npx --yes tsx scripts/check-schemas.ts .
 	@extra=$$(ls -A .. | grep -vxF $(foreach entry,$(ROOT_ENTRIES),-e $(entry))); \
 	if [ -n "$$extra" ]; then echo "unexpected entries in the repository root: $$extra"; exit 1; fi; \
 	echo "root layout ok"

@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const backend = process.argv[2] ?? '.';
-const ownerless = join(backend, 'infra', 'contracts');
+const ownerless = join(backend, 'infra', 'schemas');
 const skipped = new Set(['infra', 'scripts', 'node_modules', 'e2e']);
 
 const filesUnder = (directory: string): string[] => {
@@ -14,14 +14,14 @@ const filesUnder = (directory: string): string[] => {
 };
 
 const services = readdirSync(backend).filter(
-  (entry) => !skipped.has(entry) && existsSync(join(backend, entry, 'src', 'infra', 'contracts')),
+  (entry) => !skipped.has(entry) && existsSync(join(backend, entry, 'src', 'infra', 'schemas')),
 );
 
 const originals = new Map<string, string>();
 const problems: string[] = [];
 
 for (const service of services) {
-  const published = join(backend, service, 'src', 'infra', 'contracts', 'published');
+  const published = join(backend, service, 'src', 'infra', 'schemas', 'published');
   for (const file of filesUnder(published)) {
     const contract = relative(published, file);
     const owner = originals.get(contract);
@@ -32,11 +32,11 @@ for (const service of services) {
 for (const file of filesUnder(ownerless)) originals.set(`ownerless/${relative(ownerless, file)}`, file);
 
 const originalFor = (service: string, file: string): string | undefined => {
-  const contracts = join(backend, service, 'src', 'infra', 'contracts');
-  const consumed = join(contracts, 'consumed');
+  const schemas = join(backend, service, 'src', 'infra', 'schemas');
+  const consumed = join(schemas, 'consumed');
   if (file.startsWith(consumed)) return originals.get(relative(consumed, file));
-  if (file.startsWith(join(contracts, 'published'))) return file;
-  return originals.get(`ownerless/${relative(contracts, file)}`);
+  if (file.startsWith(join(schemas, 'published'))) return file;
+  return originals.get(`ownerless/${relative(schemas, file)}`);
 };
 
 // Services are built one at a time: a copy whose owner does not exist yet is reported, not failed.
@@ -48,7 +48,7 @@ const ownerFolderOf = (file: string): string | undefined => {
 const pending: string[] = [];
 let copies = 0;
 for (const service of services) {
-  for (const file of filesUnder(join(backend, service, 'src', 'infra', 'contracts'))) {
+  for (const file of filesUnder(join(backend, service, 'src', 'infra', 'schemas'))) {
     const original = originalFor(service, file);
     if (original === file) continue;
     copies += 1;
@@ -72,4 +72,4 @@ if (problems.length > 0) {
   process.exit(1);
 }
 for (const copy of pending) console.log(`contract pending: ${copy}`);
-console.log(`contracts ok (${services.length} services, ${originals.size} originals, ${copies} copies)`);
+console.log(`schemas ok (${services.length} services, ${originals.size} originals, ${copies} copies)`);
