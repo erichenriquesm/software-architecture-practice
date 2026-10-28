@@ -14,3 +14,7 @@ include:
       - order/docker/docker-compose.yml
       - order/docker/docker-compose.platform.yml
     env_file: order/.env
+  - path:
+      - market-data/docker/docker-compose.yml
+      - market-data/docker/docker-compose.platform.yml
+    env_file: market-data/.env
