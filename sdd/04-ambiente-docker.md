@@ -196,8 +196,8 @@ Todo serviço segue o mesmo molde. Exemplo `backend/wallet/docker/docker-compose
 | Container | Comando (dev) | Depende de |
 |---|---|---|
 | `wallet-db` | `postgres:17-alpine`, volume `wallet-db-data` | — |
-| `wallet-api` | `tsx watch src/infra/api.ts` (REST) | `wallet-db` saudável |
-| `wallet-worker` | `tsx watch src/infra/worker.ts` (consumidores + outbox relay) | `wallet-db` saudável, `rabbitmq` |
+| `wallet-api` | `tsx src/infra/api.ts` (REST) | `wallet-db` saudável |
+| `wallet-worker` | `tsx src/infra/worker.ts` (consumidores + outbox relay) | `wallet-db` saudável, `rabbitmq` |
 
 Não existe container de migração: as migrações rodam por comando (`make migrate`, §3.3), dentro do container do serviço que já está de pé.
 
@@ -215,7 +215,7 @@ O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e so
 
 **Regra: no dia a dia, nenhuma alteração de código exige rebuildar o container.** Só mudança de dependência ou do próprio `Dockerfile` exige.
 
-Mecanismo: **Compose Watch** (`develop.watch`, Docker Compose ≥ 2.22) sincroniza os arquivos alterados para dentro do container em execução, e o `tsx watch` reinicia o processo Node sozinho. Escolhido em vez de bind mount porque não sobrescreve o `node_modules` do container e funciona bem no macOS.
+Mecanismo: **Compose Watch** (`develop.watch`, Docker Compose ≥ 2.22) sincroniza os arquivos alterados para dentro do container em execução e reinicia o container (`sync+restart`). Não usamos `tsx watch`: ele mantém o container vivo quando o processo cai, e aí o `restart: unless-stopped` nunca age. Escolhido em vez de bind mount porque não sobrescreve o `node_modules` do container e funciona bem no macOS.
 
 ```yaml
 # backend/wallet/docker/docker-compose.yml (local development)
@@ -227,7 +227,7 @@ services:
       dockerfile: docker/Dockerfile
       target: dev
     working_dir: /app
-    command: sh -c "npm run proto:gen && npx tsx watch src/infra/api.ts"
+    command: sh -c "npm run proto:gen && exec npx tsx src/infra/api.ts"
     env_file: ../.env                   # copied from .env.example (§2.2)
     restart: unless-stopped             # the worker exits when the broker drops; Docker brings it back
     networks: [trading-net]
@@ -236,7 +236,7 @@ services:
         condition: service_healthy
     develop:
       watch:
-        - action: sync                  # own code: hot reload via tsx watch
+        - action: sync+restart          # own code: sync, then restart the container
           path: ../src
           target: /app/src
           ignore:
@@ -258,7 +258,7 @@ O `wallet-worker` tem o mesmo bloco `develop.watch` e o mesmo `restart`, com `co
 
 | Alteração | Precisa rebuild? | O que acontece |
 |---|---|---|
-| Código do serviço (`src/`) | **Não** | `sync` → `tsx watch` reinicia em ~1 s |
+| Código do serviço (`src/`) | **Não** | `sync+restart` → o container reinicia em ~2 s |
 | `src/infra/schemas/` do serviço (inclusive `.proto`) | **Não** | `sync+restart` → o comando regenera o código do gRPC e sobe |
 | Nova migração | **Não** | `make migration name=...` cria o arquivo e `make migrate` aplica (§3.3) |
 | Variável de ambiente no compose | **Não** | `docker compose up -d` recria só o container, com a mesma imagem |
