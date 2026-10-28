@@ -312,6 +312,7 @@ Tudo pelo `Makefile` de `backend/` (a plataforma inteira) e pelo `Makefile` de c
 | `make ps` | Lista os containers e a saúde de cada um |
 | `make logs` · `make logs s=account-api` | Segue os logs de tudo ou de um container |
 | `make down` | Para tudo (os volumes ficam) |
+| `make test` | Todos os tipos de teste de todos os serviços (checagens estáticas, unidade, integração e contrato) e depois `make check`. Não precisa da plataforma de pé |
 | `make check` | Confere as cópias de contrato e o layout da raiz |
 | `make env` | Só cria os `.env` que ainda não existem (nunca sobrescreve) |
 | `make deps` | Instala o `node_modules` e gera o código gRPC de cada serviço **na sua máquina**, via container, só para o editor enxergar tipos e imports. Rode de novo quando mudar `package.json` ou um `.proto` |

@@ -8,6 +8,7 @@
 #   make ps                 list the containers and their health
 #   make logs [s=account-api]   follow the logs (of one container when s= is given)
 #   make down               stop everything (volumes are kept)
+#   make test               every kind of test of every service (static checks, unit, integration, contract) + make check
 #   make check              contract copies and repository root layout (only backend/, frontend/, sdd/)
 #   make env                create each .env from its .env.example when it does not exist yet
 #   make deps               node_modules + generated gRPC code of every service on your machine, for the editor
@@ -16,7 +17,7 @@ COMPOSE = docker compose -f docker-compose.yml
 SERVICES = $(patsubst %/Makefile,%,$(wildcard */Makefile))
 ENV_EXAMPLES = $(wildcard infra/.env.example */.env.example */.env.test.example)
 
-.PHONY: up watch infra migrate ps logs down check env deps
+.PHONY: up watch infra migrate ps logs down check env deps test
 
 env:
 	@for example in $(ENV_EXAMPLES); do \
@@ -39,6 +40,13 @@ migrate:
 	  echo "== $$service"; \
 	  $(MAKE) --no-print-directory -C $$service migrate || exit 1; \
 	done
+
+test: env
+	@for service in $(SERVICES); do \
+	  echo "== $$service"; \
+	  $(MAKE) --no-print-directory -C $$service test || exit 1; \
+	done
+	@$(MAKE) --no-print-directory check
 
 deps:
 	@for service in $(SERVICES); do \
