@@ -15,7 +15,7 @@ O mesmo broker é visto de duas perspectivas, e **cada uma declara só a sua par
 | **Produtor** | A **exchange** do seu contexto (`topic`, durável) | Filas e bindings. O produtor não sabe quem consome. |
 | **Consumidor** | A **sua fila**, o **binding** dela nas exchanges que interessam, e as filas de retry/DLQ | Exchange de outro contexto (só referencia; assume que existe) |
 
-Isso mantém o produtor desacoplado: um novo consumidor entra criando a própria fila e o binding, sem mudar o produtor. As exchanges são criadas na subida do broker, pelo `definitions.json` do `security-init` ([autenticação §3](08-autenticacao-entre-servicos.md#3-rabbitmq-usu%C3%A1rio-e-permiss%C3%B5es-por-servi%C3%A7o)). Assim nenhum serviço depende da ordem de subida dos outros, e o consumidor só **verifica** (`checkExchange`) a exchange que referencia: ele não tem permissão para declarar exchange de outro contexto.
+Isso mantém o produtor desacoplado: um novo consumidor entra criando a própria fila e o binding, sem mudar o produtor. As exchanges são criadas na subida do broker, pelo `definitions.template.json` de `backend/infra/rabbitmq/` ([autenticação §3](08-autenticacao-entre-servicos.md#3-rabbitmq-usu%C3%A1rio-e-permiss%C3%B5es-por-servi%C3%A7o)). Assim nenhum serviço depende da ordem de subida dos outros, e o consumidor só **verifica** (`checkExchange`) a exchange que referencia: ele não tem permissão para declarar exchange de outro contexto.
 
 Cada serviço conecta com **usuário próprio**, e as permissões do broker reforçam esta tabela: o produtor só publica na própria exchange; o consumidor só declara e lê as próprias filas.
 
@@ -27,7 +27,7 @@ Cada serviço conecta com **usuário próprio**, e as permissões do broker refo
 | `wallet.events` | topic | `wallet` |
 | `order.events` | topic | `order` |
 | `matching.events` | topic | `matching` |
-| `retry` | direct | Infra comum de retry: criada pelo `definitions.json`; usada pelo kit de mensageria de cada serviço (`src/infra/platform/messaging/`) |
+| `retry` | direct | Infra comum de retry: criada pelo `definitions.template.json` da infra; usada pelo kit de mensageria de cada serviço (`src/infra/platform/messaging/`) |
 
 `market-data` não publica eventos.
 
@@ -60,7 +60,7 @@ Configuração padrão de fila: `durable`, `x-queue-type: quorum`, mensagens `pe
 
 ## 2. Envelope
 
-Toda mensagem tem o mesmo envelope (schema `envelope.schema.json`: original em `backend/infra/contracts/`, cópia em cada serviço):
+Toda mensagem tem o mesmo envelope (schema `envelope.schema.json`: original em `backend/infra/contracts/`, cópia em `src/infra/contracts/` de cada serviço):
 
 ```json
 {

@@ -20,7 +20,7 @@ Tudo vem de **projeções** dos eventos do `matching`. Este serviço não decide
 Não há invariante a proteger: os fatos já foram decididos pelo `matching`. Um agregado aqui seria cerimônia. O que existe:
 - **Projection writers** (`infra`), que transformam evento em linha de `*_view`.
 - **Funções puras** (`application/calculations/`), com a matemática testável: agregação por precisão, spread, combinação de candles.
-- **DAOs** (`application/daos/` + `infra/adapters/outbound/persistence/daos/`), que leem as `*_view`.
+- **DAOs** (interface em `application/contracts/`, implementação em `infra/database/`), que leem as `*_view`.
 - **Casos de uso de consulta**, finos: recebem `<Consulta>Input`, chamam o DAO (que devolve `<X>View`) e devolvem `<Consulta>Output`.
 
 ## 4. Projeções
@@ -124,13 +124,58 @@ Todas as tabelas são **descartáveis**: `npm run projections:rebuild` (containe
 ## 9. Estrutura
 
 ```
-backend/market-data/src/
-  application/   queries/{getDepth, getTrades, getMarket}/   (cada pasta: <query>.ts, <query>Input.ts, <query>Output.ts)
-                 daos/{depthDao, tradeDao, marketStatsDao}.ts
-                 calculations/{aggregateDepth, priceBucket, spread, mergeCandle}.ts   ← funções puras
-  infra/         adapters/inbound/{http, messaging/{trades, book}Consumer, messaging/matchingLogReplayer}
-                 adapters/outbound/persistence/{daos, projections/{tradeProjector, bookProjector}}
-                 main/{api, worker, migrate}.ts
+backend/market-data/
+  .env.example  .env.test.example
+  docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
+  Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
+  initdb/roles.sh
+  migrations/
+  src/
+    (sem domain/: não há invariante a proteger, §3)
+    application/
+      usecases/                     getDepth.ts  getTrades.ts  getMarket.ts
+      dtos/                         getDepthDto.ts  getTradesDto.ts  getMarketDto.ts  ·  depthLevelView.ts  tradeView.ts  marketStatsView.ts
+      contracts/                    depthDao.ts  tradeDao.ts  marketStatsDao.ts  marketCatalog.ts  clock.ts
+      calculations/                 aggregateDepth.ts  priceBucket.ts  spread.ts  mergeCandle.ts   ← funções puras
+    infra/
+      http/                         GET /markets/:id, /trades, /depth (rotas REST)
+      messaging/
+        consumers/                  tradesConsumer.ts  bookConsumer.ts
+        matchingLogReplayer.ts      rebuild das projeções pelo stream
+      database/                     kyselyDepthDao.ts  kyselyTradeDao.ts  kyselyMarketStatsDao.ts
+                                    tradeProjector.ts  bookProjector.ts  database.ts
+      catalog/jsonMarketCatalog.ts  faixa de precision aceita por mercado
+      platform/                     resilience/  messaging/  http/   (copiados e adaptados; sem gRPC, sem outbox)
+      contracts/
+        consumed/events/            matching.tradeExecuted.v1  matching.bookSnapshot.v1
+        envelope.schema.json  markets.json
+      api.ts  worker.ts  migrate.ts
+  test/
+    fakes/  support/
+```
+
+Sem `published/`: o `market-data` não publica eventos.
+
+### `.env.example`
+
+```bash
+API_PORT=3000
+DATABASE_HOST=market-data-db
+DATABASE_PORT=5432
+DATABASE_NAME=market_data
+POSTGRES_PASSWORD=market-data-postgres-dev
+DATABASE_MIGRATOR_USER=market_data_migrator
+DATABASE_MIGRATOR_PASSWORD=market-data-migrator-dev
+DATABASE_USER=market_data_app
+DATABASE_PASSWORD=market-data-app-dev
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_USER=marketData
+RABBITMQ_PASSWORD=market-data-rabbitmq-dev
+REDIS_HOST=redis
+REDIS_USER=marketData
+REDIS_PASSWORD=market-data-redis-dev
+RATE_LIMITS_PUBLIC_READ_PER_IP=1200/1m
+LOG_LEVEL=debug
 ```
 
 ## 10. Testes principais

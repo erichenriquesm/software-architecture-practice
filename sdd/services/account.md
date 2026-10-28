@@ -37,7 +37,7 @@ Unicidade de e-mail **não** é invariante do agregado (envolve todas as contas)
 | `ProjectWalletBalance` | Handler de evento | `wallet.balanceChanged` → *upsert* em `account_balance_view` se `version` for maior que a gravada. |
 | `AccountExists` | Consulta (gRPC) | `AccountDao.exists(accountId)`. |
 
-Portas: `AccountRepository`, `AccountDao`, `BalanceDao`, `PasswordHasher` (o hash é lento de propósito; o fake deixa o teste de unidade rápido), `WalletGateway`, `IdGenerator`.
+Contratos (interfaces em `application/contracts/`): `AccountRepository`, `AccountDao`, `BalanceDao`, `PasswordHasher` (o hash é lento de propósito; o fake deixa o teste de unidade rápido), `WalletGateway`, `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`.
 
 ## 5. API pública (REST)
 
@@ -59,7 +59,7 @@ service AccountService {
 }
 ```
 
-mTLS obrigatório. Allowlist: `Exists` só pode ser chamado por `wallet` ([autenticação §2](../08-autenticacao-entre-servicos.md#2-grpc-interno-mtls--allowlist)). O `WalletGrpcGateway` deste serviço se apresenta com o certificado `account-api`.
+Quem chama se identifica com nome + token no metadata. Allowlist: `Exists` só pode ser chamado por `wallet` ([autenticação §2](../08-autenticacao-entre-servicos.md#2-grpc-interno-token--allowlist)). Quando o `account` chama o `wallet` (`GetBalances`), manda `x-service-name: account` e o próprio token.
 
 ## 7. Integração síncrona e resiliência
 
@@ -111,23 +111,83 @@ create table account_balance_view (
 ## 10. Estrutura
 
 ```
-backend/account/src/
-  domain/        account.ts, valueObjects/{fullName, email, cpf, password, passwordHash}.ts, errors.ts
-  application/   usecases/{signup, getAccount, projectWalletBalance, accountExists}/   (cada pasta: <useCase>.ts, <useCase>Input.ts, <useCase>Output.ts)
-                 repositories/accountRepository.ts · daos/{accountDao, balanceDao}.ts
-                 ports/{passwordHasher, walletGateway, transactionRunner, domainEventDispatcher, idGenerator}.ts
-  infra/         adapters/inbound/{http, grpc, messaging/walletBalanceConsumer}
-                 adapters/outbound/{persistence/{repositories, daos, projections}, messaging/outboxEventPublisher,
-                                    gateways/wallet/{grpcWalletGateway, walletAcl, balancesFallbackChain}, crypto/argon2PasswordHasher}
-                 main/{api, worker, migrate}.ts
+backend/account/
+  .env.example  .env.test.example
+  docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
+  Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
+  initdb/roles.sh                   cria account_migrator e account_app no primeiro boot do banco
+  migrations/                       0001_*.sql …
+  src/
+    domain/
+      entities/account.ts
+      valueObjects/                 fullName.ts  email.ts  cpf.ts  password.ts  passwordHash.ts
+      domainEvents/accountCreated.ts
+      domainServices/               (vazio por enquanto: nenhuma regra envolve mais de uma entidade)
+      errors.ts
+    application/
+      usecases/                     signup.ts  getAccount.ts  projectWalletBalance.ts  accountExists.ts
+      dtos/                         signupDto.ts  getAccountDto.ts  projectWalletBalanceDto.ts  accountExistsDto.ts
+      contracts/                    accountRepository.ts  accountDao.ts  balanceDao.ts  passwordHasher.ts
+                                    walletGateway.ts  transactionRunner.ts  domainEventDispatcher.ts  idGenerator.ts
+    infra/
+      http/                         signup e getAccount (rotas REST)
+      grpc/
+        accountGrpcServer.ts        servidor do Exists
+        wallet/                     grpcWalletGateway.ts  walletAcl.ts  balancesFallbackChain.ts
+      messaging/                    walletBalanceConsumer.ts  outboxEventPublisher.ts
+      database/                     kyselyAccountRepository.ts  kyselyAccountDao.ts  kyselyBalanceDao.ts
+                                    balanceProjectionWriter.ts  kyselyTransactionRunner.ts  database.ts
+      crypto/argon2PasswordHasher.ts
+      platform/                     resilience/  messaging/  http/  security/
+      contracts/
+        published/events/account.created.v1.schema.json
+        published/proto/account.proto
+        consumed/events/wallet.balanceChanged.v1.schema.json
+        consumed/proto/wallet.proto
+        envelope.schema.json
+      generated/                    código do .proto (não versionado)
+      api.ts  worker.ts  migrate.ts
+  test/
+    fakes/                          um fake por contrato de application/contracts/
+    support/                        Postgres/RabbitMQ/Redis efêmeros, fake gRPC do wallet, fixtures
 ```
 
-Nada é migrado do código experimental da raiz: o serviço é escrito do zero ([Q15](../99-decisoes.md#q15)).
+Nada é migrado do código experimental da raiz: o serviço é escrito do zero ([Q15](../99-decisoes.md#q15)). Como é o primeiro serviço, o `src/infra/platform/` e o `test/support/` também nascem aqui, só com o que o `account` usa.
+
+### `.env.example`
+
+```bash
+API_PORT=3000
+GRPC_PORT=50051
+DATABASE_HOST=account-db
+DATABASE_PORT=5432
+DATABASE_NAME=account
+POSTGRES_PASSWORD=account-postgres-dev
+DATABASE_MIGRATOR_USER=account_migrator
+DATABASE_MIGRATOR_PASSWORD=account-migrator-dev
+DATABASE_USER=account_app
+DATABASE_PASSWORD=account-app-dev
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_USER=account
+RABBITMQ_PASSWORD=account-rabbitmq-dev
+REDIS_HOST=redis
+REDIS_USER=account
+REDIS_PASSWORD=account-redis-dev
+WALLET_GRPC_ADDR=wallet-api:50051
+GRPC_SERVICE_NAME=account
+GRPC_SERVICE_TOKEN=account-grpc-dev
+GRPC_ALLOWED_CALLERS=wallet:wallet-grpc-dev
+RATE_LIMITS_AUTH_PER_IP=5/1h
+RATE_LIMITS_AUTH_PER_EMAIL=3/1h
+RATE_LIMITS_PRIVATE_READ_PER_IP=600/1m
+RATE_LIMITS_PRIVATE_READ_PER_ACCOUNT=300/1m
+LOG_LEVEL=debug
+```
 
 ## 11. Testes principais
 
 | Nível | Casos |
 |---|---|
 | Unidade | `Cpf` válido/inválido/repetido · `Password` cada regra · `FullName` sem sobrenome · `Signup` com e-mail duplicado (fake) · `Signup` publica `account.created` · corrente de saldos: projeção → gRPC → degradado · `WalletAcl` rejeita resposta malformada |
-| Integração | `unique` de e-mail sob corrida (dois signups simultâneos → um 409) · projeção ignora `version` antiga · gateway gRPC: deadline e retry só em `UNAVAILABLE` |
+| Integração | `unique` de e-mail sob corrida (dois signups simultâneos → um 409) · projeção ignora `version` antiga · gateway gRPC: deadline e retry só em `UNAVAILABLE`, e manda nome + token em toda chamada · servidor `Exists`: token errado → `UNAUTHENTICATED`, chamador fora da allowlist → `PERMISSION_DENIED` |
 | Contrato | `account.created` valida no schema · servidor implementa `AccountService` |

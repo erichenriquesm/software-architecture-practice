@@ -42,9 +42,9 @@ Proporção-alvo em número de testes: **~70% unidade · ~20% integração · ~7
 **Não** retestar regra de negócio aqui.
 
 ### Contrato
-- **Produtor**: todo evento que o serviço publica valida contra o schema dele em `contracts/published/events/`.
+- **Produtor**: todo evento que o serviço publica valida contra o schema dele em `src/infra/contracts/published/events/`.
 - **Consumidor**: fixtures geradas a partir dos schemas são aceitas pelos handlers.
-- **gRPC**: o servidor implementa o `.proto` de `contracts/published/proto/` (garantido pela geração de código) e o cliente é testado contra a cópia em `contracts/consumed/proto/`. O `scripts/check-contracts` garante que cópia e original são iguais.
+- **gRPC**: o servidor implementa o `.proto` de `src/infra/contracts/published/proto/` (garantido pela geração de código) e o cliente é testado contra a cópia em `src/infra/contracts/consumed/proto/`. O `scripts/check-contracts` garante que cópia e original são iguais.
 - Mudança incompatível de contrato quebra esses testes antes de quebrar a produção.
 
 ### E2E — poucos, caminhos críticos
@@ -66,7 +66,7 @@ E2E usa só a API pública REST pelo edge proxy, e espera a consistência eventu
 | Fonte de variação | Como neutralizar |
 |---|---|
 | **Outro microserviço** | **Nunca chamado de verdade** fora do E2E. Vira um servidor fake (§3.2). |
-| Eventos de outro serviço | Publicados no broker de teste como **fixtures geradas dos JSON Schemas** de `contracts/`. O serviço produtor não sobe. |
+| Eventos de outro serviço | Publicados no broker de teste como **fixtures geradas dos JSON Schemas** de `src/infra/contracts/`. O serviço produtor não sobe. |
 | Tempo | `Clock` fake no domínio e na aplicação; `vi.useFakeTimers()` para timeout, backoff e job agendado. Nada de `Date.now()` direto. |
 | Ids | `IdGenerator` fake com sequência determinística. |
 | Aleatoriedade | Teste por propriedade (ex.: livro nunca cruzado) com **seed fixa**, e a seed é impressa quando falha. Jitter do backoff recebe o gerador aleatório por injeção. |
@@ -82,7 +82,7 @@ Quando o código sob teste depende de outro serviço, o teste sobe um **fake de 
 
 | Dependência | Fake | Fornecido por |
 |---|---|---|
-| gRPC interno (`AccountService`, `WalletService`) | `startFakeGrpcServer(proto, handlers)`: servidor `@grpc/grpc-js` na porta `0` (porta livre aleatória), gerado do mesmo `.proto` que o serviço tem em `contracts/`, **com mTLS** e certificados de uma CA efêmera criada por execução ([autenticação §7](08-autenticacao-entre-servicos.md#7-testes)) | `test/support/` do serviço |
+| gRPC interno (`AccountService`, `WalletService`) | `startFakeGrpcServer(proto, handlers)`: servidor `@grpc/grpc-js` na porta `0` (porta livre aleatória), gerado do mesmo `.proto` que o serviço tem em `src/infra/contracts/`, e que confere nome e token do chamador como o servidor real ([autenticação §7](08-autenticacao-entre-servicos.md#7-testes)) | `test/support/` do serviço |
 | HTTP externo (se surgir: provedor de identidade, gateway de pagamento…) | `startFakeHttpServer(routes)`: instância Fastify na porta `0` | `test/support/` do serviço |
 
 O fake é **programável por cenário**, e cada cenário é determinístico:
@@ -105,7 +105,14 @@ Cenários que todo gateway testa: resposta válida · `NOT_FOUND` · `UNAVAILABL
 
 - **Teste descreve comportamento**, no formato Given / When / Then.
 - **Sem mock de biblioteca de terceiros** em teste de unidade: o fake é da **porta** do meu contexto.
-- **Fakes vivem perto do teste** (`tests/fakes/`), um por porta, reaproveitados.
+- **Onde fica cada coisa:**
+
+  | O quê | Onde |
+  |---|---|
+  | Teste de unidade | Ao lado do código testado: `signup.ts` → `signup.spec.ts` |
+  | Teste de integração e de contrato | Ao lado do adapter testado, com sufixo `.int.spec.ts` |
+  | Fakes das portas (um por porta, reaproveitados) | `test/fakes/` |
+  | Helpers de teste (fake gRPC/HTTP, banco e broker efêmeros, fixtures) | `test/support/` |
 - **Tempo e id controlados** por `Clock`/`IdGenerator` fakes. Nada de `Date.now()` no domínio.
 - **Banco limpo por teste** de integração (`truncate` das tabelas do serviço ou transação com rollback).
 - **Teste instável é bug.** Não se aumenta timeout para "passar".
@@ -125,4 +132,6 @@ Tudo em container.
 
 RabbitMQ e Redis dos testes de integração são **efêmeros e isolados por serviço**, para que testes de serviços diferentes não interfiram entre si. A regra de "um único RabbitMQ" vale para a plataforma em execução, não para testes isolados. O E2E é o único nível que sobe os serviços de verdade, cada execução num ambiente novo.
 
-Os testes de integração ficam num arquivo próprio (`docker-compose.test.yml`), que declara só os containers efêmeros de teste. Assim um `down -v` dos testes nunca alcança o volume compartilhado `trading-secrets` nem o banco do serviço.
+Os testes de integração ficam num arquivo próprio (`docker-compose.test.yml`), que declara só os containers efêmeros de teste. Assim um `down -v` dos testes nunca alcança o banco de desenvolvimento do serviço.
+
+O compose de teste tem o próprio **`.env.test.example`** ao lado dele (copiado para `.env.test`), com os hosts e as credenciais dos containers efêmeros (`<svc>-db-test`, `<svc>-rabbitmq-test`, `<svc>-redis-test`), seguindo a mesma regra do [ambiente §2.2](04-ambiente-docker.md#22-envexample-por-compose).

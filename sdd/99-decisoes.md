@@ -15,8 +15,8 @@
 | <a id="q1"></a>**Q1** | Withdraw dizia "quantidade **≥** saldo" (invertido). | `quantity ≤ available`. O saldo reservado em ordens abertas **não** pode ser sacado. | Binance separa `free` de `locked`, e só o `free` é sacável. |
 | <a id="q2"></a>**Q2** | Schema `ccca` × `app`, banco único. | Um Postgres por serviço; schema com o nome do serviço. | Database per service. |
 | <a id="q3"></a>**Q3** | `cancel_order` sem caso de uso. | Cancela **só a parte não executada**; o que já executou continua executado. A ordem termina `cancelled` com `fillQuantity` preservado. | Binance: ordem `CANCELED` mantém o `executedQty`. |
-| <a id="q4"></a>**Q4** | Sem autenticação; `accountId` no corpo. | **Fora do escopo do conceito.** Os serviços recebem `accountId` como diz o objetivo. Ponto de extensão definido: o **edge proxy** autentica (API key + assinatura HMAC com timestamp) e injeta `X-Account-Id`; a partir daí, os serviços passam a ignorar o `accountId` do corpo. Nenhum serviço implementa autenticação de usuário própria. Quando o login existir, a identidade do usuário viaja do edge para os serviços num **JWT interno** de vida curta, assinado só pelo edge ([autenticação entre serviços §6](08-autenticacao-entre-servicos.md#6-identidade-do-usu%C3%A1rio-jwt-interno-quando-o-login-existir)). A autenticação **entre serviços** (mTLS e credenciais por canal) já faz parte do conceito. As regras contra brute force do login futuro (bloqueio por conta e por IP, escalonado e temporário) já estão em [rate limiting §4](07-rate-limiting.md#4-brute-force-em-autentica%C3%A7%C3%A3o). | Binance: endpoints `SIGNED` com `X-MBX-APIKEY` + HMAC-SHA256 + `timestamp`/`recvWindow`. |
-| <a id="q5"></a>**Q5** | Quais mercados existem? | **Catálogo estático** `markets.json`, com original em `backend/infra/contracts/` e cópia em cada serviço que usa (dado de referência da Published Language, não código de domínio), com os **filtros** de cada mercado. Hoje só `BTC-USD`. Cada serviço lê o catálogo na inicialização. | Binance `exchangeInfo`: lista de símbolos com filtros. |
+| <a id="q4"></a>**Q4** | Sem autenticação; `accountId` no corpo. | **Fora do escopo do conceito.** Os serviços recebem `accountId` como diz o objetivo. Ponto de extensão definido: o **edge proxy** autentica (API key + assinatura HMAC com timestamp) e injeta `X-Account-Id`; a partir daí, os serviços passam a ignorar o `accountId` do corpo. Nenhum serviço implementa autenticação de usuário própria. Quando o login existir, a identidade do usuário viaja do edge para os serviços num **JWT interno** de vida curta, assinado só pelo edge ([autenticação entre serviços §6](08-autenticacao-entre-servicos.md#6-identidade-do-usu%C3%A1rio-jwt-interno-quando-o-login-existir)). A autenticação **entre serviços** (nome + token no gRPC e credenciais por canal, todas no `.env` de cada compose) já faz parte do conceito. As regras contra brute force do login futuro (bloqueio por conta e por IP, escalonado e temporário) já estão em [rate limiting §4](07-rate-limiting.md#4-brute-force-em-autentica%C3%A7%C3%A3o). | Binance: endpoints `SIGNED` com `X-MBX-APIKEY` + HMAC-SHA256 + `timestamp`/`recvWindow`. |
+| <a id="q5"></a>**Q5** | Quais mercados existem? | **Catálogo estático** `markets.json`, com original em `backend/infra/contracts/` e cópia em `src/infra/contracts/` de cada serviço que usa (dado de referência da Published Language, não código de domínio), com os **filtros** de cada mercado. Hoje só `BTC-USD`. Cada serviço lê o catálogo na inicialização. | Binance `exchangeInfo`: lista de símbolos com filtros. |
 | <a id="q6"></a>**Q6** | "Precisão" do GetDepth agrupa casas inteiras. | `bucket = floor(price / 10^p) × 10^p`. Vai de `p = −2` (o próprio tick de `0.01`, **sem agregação**) até `p = 5`. **Padrão: sem agregação.** O exemplo do objetivo (`p = 3` → 84.000) continua valendo. | Bitfinex: book com níveis de agregação (`P0`…) e book "raw". |
 | <a id="q7"></a>**Q7** | Cancelar ordem em `pending`? | **Pode.** Exchanges deixam cancelar a qualquer momento antes do fim. Em `pending`, o cancelamento usa a **mesma compensação do timeout**: a ordem vira `cancelled` e publica `order.voided`, e o `wallet` libera ou anula a reserva. O pivot da saga continua sendo um só (a ordem sai de `pending` uma única vez). | Binance permite cancelar ordem `NEW`. |
 | <a id="q8"></a>**Q8** | Ordem a mercado. | **Fora do escopo**, como diz o objetivo: só ordem limitada. | — |
@@ -34,7 +34,7 @@
 
 ## Anexo: formato do `markets.json`
 
-Catálogo de referência da [Q5](#q5). Original em `backend/infra/contracts/markets.json`; cada serviço que usa guarda cópia em `contracts/markets.json`, verificada pelo `scripts/check-contracts`. Valores decimais em **string**, como nos eventos.
+Catálogo de referência da [Q5](#q5). Original em `backend/infra/contracts/markets.json`; cada serviço que usa guarda cópia em `src/infra/contracts/markets.json`, verificada pelo `scripts/check-contracts`. Valores decimais em **string**, como nos eventos.
 
 ```json
 {
@@ -66,7 +66,7 @@ Catálogo de referência da [Q5](#q5). Original em `backend/infra/contracts/mark
 | `depthPrecision` | Faixa de `precision` aceita no `GetDepth` e níveis pré-agregados (`market-data`), [Q6](#q6) |
 | `status` | `active` aceita ordens; outro valor recusa novas ordens. Hoje só existe `active`. |
 
-O arquivo tem um JSON Schema próprio em `contracts/` e é validado na inicialização de cada serviço: catálogo inválido impede o serviço de subir.
+O arquivo tem um JSON Schema próprio, ao lado dele em `infra/contracts/`, e é validado na inicialização de cada serviço: catálogo inválido impede o serviço de subir.
 
 ## O que mudou nas specs por causa destas decisões
 

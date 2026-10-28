@@ -52,7 +52,7 @@ Algoritmo: **contador de janela deslizante** com dois buckets ponderados (`anter
 
 **Peso por endpoint** (só nos grupos de leitura): rota por id = 1 · lista de ordens = 5 · `GET /markets/:id` = 1 · `/trades` = 2 (até 50 itens; 5 acima disso) · `/depth` = 2. Assim, endpoints mais caros consomem mais da cota, no modelo do `REQUEST_WEIGHT` da Binance.
 
-Os números são o ponto de partida do conceito e ficam em configuração (`RATE_LIMITS_*`), não no código.
+Os números são o ponto de partida do conceito e ficam em variáveis `RATE_LIMITS_*` no `.env.example` de cada serviço ([ambiente §2.2](04-ambiente-docker.md#22-envexample-por-compose)), não no código.
 
 ### 3.2 Resposta ao exceder
 

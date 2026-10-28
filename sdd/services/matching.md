@@ -65,7 +65,7 @@ Isso implementa as regras do objetivo:
 | `ExecuteOrder` | `order.accepted.<marketId>` | Se o `orderId` já está no livro → ignora (idempotência). `book.place(entry)` → numa transação: grava entradas alteradas, trades, `sequence`, outbox (`tradeExecuted` × N + `orderRemoved` por STP + `bookSnapshot`). |
 | `RemoveOrder` | `order.cancelRequested.<marketId>` | `book.cancel` → `matching.orderRemoved` + `bookSnapshot`, ou `matching.orderCancelRejected(NOT_IN_BOOK)`. |
 
-Portas: `OrderBookRepository` (carregar/salvar o livro do mercado), `IdGenerator`, `Clock`. Não há DAO: este serviço não atende consultas.
+Contratos (interfaces em `application/contracts/`): `OrderBookRepository` (carregar/salvar o livro do mercado), `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`, `Clock`. Não há DAO: este serviço não atende consultas.
 
 Sagas em que este serviço participa: **S2** (passo repetível, depois do pivot), **S3** (dono: o trade é o pivot) e **S4** (pivot: remover do livro). Ver [06-sagas.md](../06-sagas.md).
 
@@ -132,14 +132,62 @@ Entrada totalmente executada é **apagada** de `book_entry`: o livro guarda só 
 ## 8. Estrutura
 
 ```
-backend/matching/src/
-  domain/        orderBook.ts, bookEntry.ts, trade.ts, valueObjects/{marketId, side, quantity, price}.ts, events.ts, errors.ts
-  application/   usecases/{executeOrder, removeOrder}/   (cada pasta: <useCase>.ts, <useCase>Input.ts, <useCase>Output.ts)
-                 repositories/orderBookRepository.ts · ports/{transactionRunner, domainEventDispatcher, idGenerator, clock}.ts
-  infra/         adapters/inbound/{messaging/{marketConsumer, inProcessRetry}, http/health}
-                 adapters/outbound/{persistence/repositories/kyselyOrderBookRepository, messaging/outboxEventPublisher}
-                 main/{worker, migrate}.ts
+backend/matching/
+  .env.example  .env.test.example
+  docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
+  Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
+  initdb/roles.sh
+  migrations/
+  src/
+    domain/
+      entities/                     orderBook.ts  bookEntry.ts  bids.ts  asks.ts
+      valueObjects/                 trade.ts  marketId.ts  side.ts  quantity.ts  price.ts
+      domainEvents/                 tradeExecuted.ts  orderRemoved.ts  orderCancelRejected.ts  bookChanged.ts
+      domainServices/               (vazio por enquanto: toda regra cabe no agregado OrderBook)
+      errors.ts
+    application/
+      usecases/                     executeOrder.ts  removeOrder.ts
+      dtos/                         executeOrderDto.ts  removeOrderDto.ts
+      contracts/                    orderBookRepository.ts  transactionRunner.ts  domainEventDispatcher.ts
+                                    idGenerator.ts  clock.ts
+    infra/
+      http/health.ts                só /health (não há API pública)
+      messaging/
+        consumers/marketConsumer.ts um por mercado, com retry em processo
+        integrationEventMapper.ts  outboxEventPublisher.ts
+      database/                     kyselyOrderBookRepository.ts  kyselyTransactionRunner.ts  database.ts
+      platform/                     resilience/  messaging/   (copiados e adaptados; sem gRPC, sem rate limit)
+      contracts/
+        published/events/           matching.tradeExecuted.v1  matching.orderRemoved.v1
+                                    matching.orderCancelRejected.v1  matching.bookSnapshot.v1
+        consumed/events/            order.accepted.v1  order.cancelRequested.v1
+        envelope.schema.json  markets.json   (lista de mercados: uma fila e um consumer por mercado)
+      worker.ts  migrate.ts
+  test/
+    fakes/  support/
 ```
+
+O evento de domínio `BookChanged` vira o evento de integração `matching.bookSnapshot` no `IntegrationEventMapper`. O `matching` não tem `api.ts`: o `/health` sobe junto com o `worker`.
+
+### `.env.example`
+
+```bash
+HEALTH_PORT=3000
+DATABASE_HOST=matching-db
+DATABASE_PORT=5432
+DATABASE_NAME=matching
+POSTGRES_PASSWORD=matching-postgres-dev
+DATABASE_MIGRATOR_USER=matching_migrator
+DATABASE_MIGRATOR_PASSWORD=matching-migrator-dev
+DATABASE_USER=matching_app
+DATABASE_PASSWORD=matching-app-dev
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_USER=matching
+RABBITMQ_PASSWORD=matching-rabbitmq-dev
+LOG_LEVEL=debug
+```
+
+O `matching` não usa Redis (não tem API pública, então não tem rate limit) nem gRPC.
 
 ## 9. Testes principais
 

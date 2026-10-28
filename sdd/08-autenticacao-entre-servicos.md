@@ -2,52 +2,83 @@
 
 > Status: **spec** · Trata de **serviço provando a outro serviço quem ele é**, e do que cada um pode fazer. A identidade do **usuário** é outro assunto: hoje fica fora do escopo ([Q4](99-decisoes.md#q4)), e o §6 só define como ela vai viajar quando o login existir.
 
-Regra geral: **cada serviço tem identidade própria em cada canal, e cada identidade só pode o mínimo que o serviço precisa.** Ninguém compartilha senha, certificado ou usuário com outro serviço.
+Regra geral: **cada serviço tem credencial própria em cada canal, e cada credencial só pode o mínimo que o serviço precisa.** Nenhum serviço usa a senha ou o token de outro.
 
-| Canal | Como o serviço se autentica | O que limita o acesso |
+| Canal | Como o serviço se identifica | O que limita o acesso |
 |---|---|---|
-| gRPC interno | **mTLS**, um certificado por serviço | Allowlist de métodos por serviço chamador (§2) |
-| RabbitMQ | Usuário e senha por serviço | Permissões de configure / write / read por expressão (§3) |
-| Postgres | Usuário por serviço, separado entre migração e execução (§4) | Cada usuário só existe no banco do próprio serviço |
-| Redis | Usuário por serviço na ACL do Redis (§5) | Só chaves com o prefixo do serviço |
+| gRPC interno | Nome + token no metadata (§2) | Lista de quem pode chamar cada método |
+| RabbitMQ | Usuário e senha por serviço (§3) | Permissões de configure / write / read |
+| Postgres | Dois usuários por serviço: migração e execução (§4) | Cada usuário só existe no banco do próprio serviço |
+| Redis | Usuário e senha por serviço (§5) | Só chaves com o prefixo do serviço |
 | REST do edge para os serviços | Nenhuma no conceito (rede interna) | §6 |
 
 ---
 
-## 1. Segredos e certificados no ambiente local
+## 1. Onde ficam as credenciais
 
-Tudo é gerado **dentro de container**, como manda a regra de Docker ([princípios §7](01-principios.md#7-docker-sempre)), e nada disso vai para o git.
+**No `.env` de cada compose**, copiado do `.env.example` versionado ([ambiente §2.2](04-ambiente-docker.md#22-envexample-por-compose)). Não existe container que gere senha nem certificado.
 
-- **`security-init`**, container de execução única no compose de infraestrutura compartilhada (`backend/infra/`), roda antes de qualquer outro:
-  1. cria uma **CA local** (chave privada + certificado raiz);
-  2. emite um **certificado por serviço** com o nome DNS dele no SAN (`account-api`, `wallet-api`, …), validade de 30 dias;
-  3. gera uma **senha aleatória** por serviço para RabbitMQ, Postgres (migração e execução) e Redis;
-  4. grava tudo no volume nomeado **`trading-secrets`**.
-- Se o volume já tiver os arquivos, o `security-init` não faz nada. Para rotacionar: `docker compose run --rm security-init --rotate`.
-- O volume tem **um subdiretório por container** (`rabbitmq/`, `redis/`, `<svc>-db/`, `<svc>-migrate/`, `<svc>-api/`, `<svc>-worker/`), com dono igual ao usuário daquele container (rabbitmq 100, redis 999, postgres 70, node 1000) e modo `0600`. Cada container monta **só o próprio subdiretório** (`volume.subpath`), em `/run/secrets/` e somente leitura. O código lê o conteúdo de variáveis `*_FILE` (ex.: `DATABASE_PASSWORD_FILE=/run/secrets/wallet-db-app-password`). Nenhuma senha aparece no `docker-compose.yml` nem em `.env`.
-- A chave privada da CA só é montada no `security-init`. Nenhum serviço consegue emitir certificado.
+| Credencial | `.env` de quem cria | `.env` de quem usa |
+|---|---|---|
+| Usuário e senha do serviço no RabbitMQ | `backend/infra/` | `backend/<svc>/` |
+| Usuário e senha do serviço no Redis | `backend/infra/` | `backend/<svc>/` |
+| Usuários e senhas do Postgres | `backend/<svc>/` (o banco é do próprio serviço) | `backend/<svc>/` |
+| Token gRPC do serviço | `backend/<svc>/` de quem recebe a chamada | `backend/<svc>/` de quem chama |
+
+Quando a mesma credencial aparece em dois `.env.example`, os dois têm o mesmo valor. Os valores do `.env.example` são **só de desenvolvimento**; fora do ambiente local, as mesmas variáveis vêm do gerenciador de segredos ([ambiente §6](04-ambiente-docker.md#6-refer%C3%AAncia-de-implanta%C3%A7%C3%A3o-na-aws-fora-do-escopo)).
 
 ---
 
-## 2. gRPC interno: mTLS + allowlist
+## 2. gRPC interno: token + allowlist
 
-### 2.1 mTLS
-- Servidor e cliente apresentam certificado e verificam o do outro contra a CA local. Sem certificado válido, a conexão nem abre.
-- O cliente confere se o certificado do servidor tem o nome que ele chamou (`account-api`). Isso impede que outro container se passe pelo serviço.
-- O servidor extrai a **identidade do chamador** do certificado (o nome no SAN, ex.: `wallet-api` → serviço `wallet`).
-- Implementado em `src/infra/platform/security/` de cada serviço (vem do template): credenciais do cliente e do servidor `@grpc/grpc-js` a partir dos arquivos de `/run/secrets/`.
-
-### 2.2 Allowlist por serviço
-Cada servidor gRPC declara **quem pode chamar cada método**. A checagem é um interceptor de `src/infra/platform/security/`, que roda **antes** do handler, no adapter de entrada.
+Hoje existem dois métodos gRPC, os dois de fallback:
 
 | Servidor | Método | Quem pode chamar |
 |---|---|---|
 | `account` | `AccountService.Exists` | `wallet` |
 | `wallet` | `WalletService.GetBalances` | `account` |
 
-- Chamador fora da lista → **`PERMISSION_DENIED`**, com log de auditoria (`caller`, `method`, `correlationId`). A ACL do cliente trata esse código como erro permanente: **sem retry**.
-- A allowlist fica em configuração do serviço (`grpcAllowlist`), versionada junto com o código, e é validada na inicialização. Método sem entrada na lista é **negado por padrão**.
-- Adicionar um consumidor novo de um método é mudar a lista do servidor: a decisão fica com o dono do método.
+### 2.1 Quem está chamando
+
+Quem chama manda, em toda chamada, dois headers no metadata do gRPC:
+
+```
+x-service-name:  wallet
+x-service-token: wallet-grpc-dev
+```
+
+Quem recebe tem no `.env` os chamadores conhecidos e o token de cada um:
+
+```bash
+# backend/account/.env.example
+GRPC_ALLOWED_CALLERS=wallet:wallet-grpc-dev
+```
+```bash
+# backend/wallet/.env.example (as the caller)
+GRPC_SERVICE_NAME=wallet
+GRPC_SERVICE_TOKEN=wallet-grpc-dev
+```
+
+Se o nome não está na lista ou o token não bate → **`UNAUTHENTICATED`**.
+
+### 2.2 O que ele pode chamar
+
+Saber quem chamou não basta: cada método tem a lista de quem pode chamá-lo (a tabela acima). Ela fica no código do serviço (`grpcAllowlist`), porque é decisão do dono do método, e é validada na inicialização. Método sem entrada na lista é **negado por padrão**.
+
+Chamador conhecido, mas fora da lista do método → **`PERMISSION_DENIED`**, com log (`caller`, `method`, `correlationId`).
+
+### 2.3 Onde fica no código
+
+Um **interceptor** em `src/infra/platform/security/`, que roda antes de qualquer handler:
+
+1. lê `x-service-name` e `x-service-token`;
+2. confere com `GRPC_ALLOWED_CALLERS` → senão `UNAUTHENTICATED`;
+3. confere com `grpcAllowlist` do método → senão `PERMISSION_DENIED`;
+4. chama o handler.
+
+Do lado de quem chama, o gateway gRPC acrescenta os dois headers em toda chamada. `UNAUTHENTICATED` e `PERMISSION_DENIED` são **erros permanentes**: o gateway não faz retry ([princípios §4.1](01-principios.md#41-rest-ou-grpc)).
+
+O tráfego gRPC não é criptografado: fica dentro da `trading-net`. Fora do ambiente local, TLS pode ser ligado no canal sem mudar essa checagem.
 
 ---
 
@@ -63,13 +94,12 @@ Um usuário por serviço, no vhost `trading`. As permissões do RabbitMQ são tr
 | `matching` | `^(matching\.events\|matching\..*)$` | `^(matching\.events\|matching\..*\|retry)$` | `^(matching\..*\|order\.events\|retry)$` |
 | `marketData` | `^marketData\..*$` | `^(marketData\..*\|retry)$` | `^(marketData\..*\|matching\.events\|retry)$` |
 
-Como ler: para fazer o binding de uma fila própria numa exchange de outro contexto, o RabbitMQ exige *write* na fila e *read* na exchange. Por isso a exchange do produtor aparece no *read* de quem consome dela. Ninguém tem *write* na exchange de outro contexto, então **nenhum serviço consegue publicar um evento em nome de outro**.
+Como ler: para ligar uma fila própria numa exchange de outro contexto, o RabbitMQ exige *write* na fila e *read* na exchange. Por isso a exchange do produtor aparece no *read* de quem consome dela. Ninguém tem *write* na exchange de outro contexto, então **nenhum serviço consegue publicar um evento em nome de outro**.
 
-- **`retry` aparece no *write* e no *read* de todos os consumidores.** *Write* para publicar a cópia na fila de atraso e na DLQ; *read* porque toda fila (principal, de atraso e DLQ) é ligada à exchange `retry`, e ligar fila a uma exchange exige *read* nela (verificado em container).
-- O `matching` não tem filas de atraso ([mensageria §6](03-mensageria.md#6-ordem-garantida-a-fila-do-matching)), mas tem acesso a `retry` para mandar falha permanente para a DLQ dele.
+- **`retry` aparece no *write* e no *read* de todos.** *Write* para publicar na fila de atraso e na DLQ; *read* porque toda fila é ligada à exchange `retry`, e ligar fila a uma exchange exige *read* nela.
 - Ninguém usa a exchange padrão (`""`) como dead-letter: isso exigiria *write* em `amq.default`.
-- As filas de atraso e a DLQ são declaradas pelo próprio serviço consumidor; a exchange `retry` vem do `definitions.json`, como as demais.
-- Os usuários, o vhost e as permissões ficam num `definitions.json` gerado pelo `security-init` e carregado pelo RabbitMQ na subida. O usuário administrador só é usado por esse processo e pelo painel de gestão.
+- **Como os usuários são criados:** `backend/infra/rabbitmq/` tem um `definitions.template.json` (vhost, usuários, permissões e exchanges) com as senhas como variáveis (`${ACCOUNT_RABBITMQ_PASSWORD}`…). O script de entrada do container troca as variáveis pelos valores do `.env` da infra e sobe o broker com o arquivo pronto.
+- O usuário admin (do `.env` da infra) só é usado no painel de gestão.
 - Tentativa fora da permissão → `ACCESS_REFUSED` do broker: erro permanente, alarme.
 
 ---
@@ -83,28 +113,27 @@ Cada banco de serviço tem **dois** usuários, para que o processo que atende re
 | `<svc>_migrator` | container `<svc>-migrate` | Dono do schema: `CREATE` / `ALTER` / `DROP` |
 | `<svc>_app` | `<svc>-api` e `<svc>-worker` | Só `SELECT`, `INSERT`, `UPDATE`, `DELETE` nas tabelas do schema e uso das sequences (`GRANT` feito pela migração) |
 
-- O superusuário do Postgres só é usado na criação do banco e dos dois usuários, no primeiro boot do container.
+- **Como são criados:** no primeiro boot do `<svc>-db`, o script `backend/<svc>/initdb/roles.sh` (montado em `/docker-entrypoint-initdb.d/`) cria os dois usuários com as senhas do `.env` do serviço. O superusuário (`POSTGRES_PASSWORD`) só é usado nesse momento.
 - Os usuários só existem no banco do próprio serviço. Isso reforça, por credencial, a regra "nenhum serviço lê o banco de outro" ([design estratégico §4](02-design-estrategico.md#4-context-map)).
 - O `market-data` não precisa de `DELETE` fora da reconstrução de projeções; o comando de rebuild roda com o `<svc>_migrator`.
 
 ---
 
-## 5. Redis: ACL por serviço
+## 5. Redis: usuário por serviço
 
-Um usuário por serviço na ACL do Redis, restrito ao próprio prefixo de chave e aos comandos que o rate limit usa:
+Um usuário por serviço, restrito ao próprio prefixo de chave e aos comandos que o rate limit usa:
 
 ```
 user default off
-user wallet on #{sha256 da senha} ~wallet:* resetchannels -@all +eval +evalsha +hello +auth +client|setinfo +client|setname +info +get +set +del +incrby +expire +pexpire +ttl +pttl
+user wallet on >wallet-redis-dev ~wallet:* resetchannels -@all +eval +evalsha +hello +auth +client|setinfo +client|setname +info +get +set +del +incrby +expire +pexpire +ttl +pttl
 ```
 
 - `user default off`: conexão sem usuário é recusada.
 - `~wallet:*`: o `wallet` não enxerga contadores de outro serviço.
-- **`-@all` e lista explícita**: só os comandos do limitador. Categorias como `+@read +@write` liberariam `KEYS` e `FLUSHALL` (verificado em container).
+- **`-@all` e lista explícita**: só os comandos do limitador. Categorias como `+@read +@write` liberariam `KEYS` e `FLUSHALL`.
 - Comandos chamados **dentro do Lua** também passam pela ACL; por isso o script só usa comandos da lista. `TIME` é negado, então o horário entra pelo `ARGV`.
 - `+hello` e `+info` existem porque o cliente (ioredis) usa RESP3 e faz checagem de prontidão.
-- Senha guardada como hash SHA-256 (`#…`), nunca em claro.
-- A ACL é gerada pelo `security-init` num arquivo `users.acl`, carregado pelo Redis na subida.
+- **Como os usuários são criados:** o script de entrada do container gera o `users.acl` a partir do `.env` da infra (uma linha por serviço, como acima) e sobe o Redis com `--aclfile`.
 
 ---
 
@@ -127,10 +156,10 @@ user wallet on #{sha256 da senha} ~wallet:* resetchannels -@all +eval +evalsha +
 4. O adapter de entrada REST verifica assinatura, `iss`, `aud` e `exp`, e passa o `accountId` do token para o `Input` do caso de uso. A partir daí, o `accountId` do corpo é ignorado.
 5. Em eventos e gRPC, o `accountId` continua indo no payload, como já está: o JWT é só a prova de quem fez a requisição na borda, e não atravessa a mensageria.
 
-O JWT **não** autentica serviço. Quem autentica serviço é o mTLS (§2) e as credenciais por canal (§3–5).
+O JWT **não** autentica serviço. Quem autentica serviço é o token gRPC (§2) e as credenciais por canal (§3–5).
 
 ### O que fica sem autenticação no conceito
-A chamada REST do edge para os serviços trafega sem TLS dentro da `trading-net`. É uma escolha consciente do conceito, que roda numa rede Docker isolada. Quando o JWT interno existir, o serviço passa a recusar requisição sem token válido; TLS nesse trecho pode ser adicionado com os mesmos certificados da CA local.
+A chamada REST do edge para os serviços trafega sem TLS dentro da `trading-net`. É uma escolha consciente do conceito, que roda numa rede Docker isolada. Quando o JWT interno existir, o serviço passa a recusar requisição sem token válido.
 
 ---
 
@@ -140,6 +169,6 @@ Seguem as regras de repetibilidade ([testes §3](05-estrategia-de-testes.md#3-re
 
 | Nível | Casos |
 |---|---|
-| Unidade | Allowlist: chamador permitido, chamador negado, método sem entrada (negado por padrão) · extração da identidade a partir do SAN · validação da configuração na inicialização |
-| Integração | O `test/support/` do serviço gera uma **CA efêmera por execução** e certificados de teste. O fake gRPC (`startFakeGrpcServer`) também exige mTLS. Casos: cliente sem certificado não conecta · certificado de outra CA é recusado · chamador fora da allowlist recebe `PERMISSION_DENIED` e o gateway não faz retry · no broker de teste, publicar na exchange de outro contexto dá `ACCESS_REFUSED` · usuário `<svc>_app` não consegue `ALTER TABLE` · usuário Redis não lê chave de outro prefixo |
-| E2E | A plataforma sobe com o `security-init` e os caminhos críticos passam com mTLS ligado |
+| Unidade | Interceptor: nome e token certos passam · token errado → `UNAUTHENTICATED` · nome desconhecido → `UNAUTHENTICATED` · chamador fora da lista do método → `PERMISSION_DENIED` · método sem entrada → negado · leitura de `GRPC_ALLOWED_CALLERS` (formato inválido impede a subida) |
+| Integração | O fake gRPC (`startFakeGrpcServer`) confere os mesmos headers. Casos: gateway manda nome e token em toda chamada · `UNAUTHENTICATED` e `PERMISSION_DENIED` não têm retry · no broker de teste, publicar na exchange de outro contexto dá `ACCESS_REFUSED` · usuário `<svc>_app` não consegue `ALTER TABLE` · usuário Redis não lê chave de outro prefixo |
+| E2E | A plataforma sobe só com os `.env` copiados dos `.env.example`, e os caminhos críticos passam |

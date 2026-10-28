@@ -75,7 +75,7 @@ Reações aos eventos de domínio: `IntegrationEventMapper` (handler transaciona
 
 **Concorrência:** controle otimista em `wallet.version`. Conflito → o caso de uso recarrega e tenta de novo (até 3×, em processo). Persistindo, no HTTP vira `409`; no consumidor, é erro transitório → fila de retry.
 
-Portas: `WalletRepository`, `BalanceDao`, `AccountGateway`, `TransactionRunner`, `DomainEventDispatcher`, `Clock`.
+Contratos (interfaces em `application/contracts/`): `WalletRepository`, `BalanceDao`, `AccountGateway`, `AssetCatalog` (precisão de cada ativo, lida do `markets.json`), `TransactionRunner`, `DomainEventDispatcher`, `Clock`.
 
 Sagas em que este serviço participa: **S1**, **S2** (passo compensável e compensação), **S3** (liquidação), **S4** (liberação). Ver [06-sagas.md](../06-sagas.md).
 
@@ -98,7 +98,7 @@ service WalletService {
 }
 ```
 
-mTLS obrigatório. Allowlist: `GetBalances` só pode ser chamado por `account` ([autenticação §2](../08-autenticacao-entre-servicos.md#2-grpc-interno-mtls--allowlist)). O `AccountGrpcGateway` deste serviço se apresenta com o certificado `wallet-api`.
+Quem chama se identifica com nome + token no metadata. Allowlist: `GetBalances` só pode ser chamado por `account` ([autenticação §2](../08-autenticacao-entre-servicos.md#2-grpc-interno-token--allowlist)). Quando o `wallet` chama o `account` (`Exists`), manda `x-service-name: wallet` e o próprio token.
 
 ## 7. Integração síncrona e resiliência
 
@@ -178,15 +178,76 @@ O `check` no banco é a última defesa da invariante 1. A regra de verdade está
 ## 10. Estrutura
 
 ```
-backend/wallet/src/
-  domain/        wallet.ts, reservation.ts, valueObjects/{assetId, quantity, price, marketId, side}.ts, events.ts, errors.ts
-  application/   usecases/{openWallet, deposit, withdraw, reserveFunds, settleTradeSide, releaseReservation, compensateReservation, getBalances}/
-                   (cada pasta: <useCase>.ts, <useCase>Input.ts, <useCase>Output.ts)
-                 repositories/walletRepository.ts · daos/balanceDao.ts · ports/{accountGateway, transactionRunner, domainEventDispatcher, clock}.ts
-  infra/         adapters/inbound/{http, grpc, messaging/{accountCreated, orderPlaced, tradeExecuted, orderRemoved, orderVoided}Consumer}
-                 adapters/outbound/{persistence/{repositories, daos}, messaging/outboxEventPublisher,
-                                    gateways/account/{grpcAccountGateway, accountAcl, accountExistenceChain}}
-                 main/{api, worker, migrate}.ts
+backend/wallet/
+  .env.example  .env.test.example
+  docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
+  Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
+  initdb/roles.sh
+  migrations/
+  src/
+    domain/
+      entities/                     wallet.ts  reservation.ts
+      valueObjects/                 balance.ts  assetId.ts  quantity.ts  price.ts  marketId.ts  side.ts  assetPrecision.ts
+      domainEvents/                 fundsReserved.ts  fundsReservationRejected.ts  balanceChanged.ts
+      domainServices/               (vazio por enquanto: toda regra cabe no agregado Wallet)
+      errors.ts
+    application/
+      usecases/                     openWallet.ts  deposit.ts  withdraw.ts  reserveFunds.ts  settleTradeSide.ts
+                                    releaseReservation.ts  compensateReservation.ts  getBalances.ts
+      dtos/                         um <useCase>Dto.ts por caso de uso  ·  balanceView.ts
+      contracts/                    walletRepository.ts  balanceDao.ts  accountGateway.ts  assetCatalog.ts
+                                    transactionRunner.ts  domainEventDispatcher.ts  clock.ts
+    infra/
+      http/                         deposit e withdraw (rotas REST)
+      grpc/
+        walletGrpcServer.ts         servidor do GetBalances
+        account/                    grpcAccountGateway.ts  accountAcl.ts  accountExistenceChain.ts
+      messaging/
+        consumers/                  accountCreatedConsumer.ts  orderPlacedConsumer.ts  tradeExecutedConsumer.ts
+                                    orderRemovedConsumer.ts  orderVoidedConsumer.ts
+        integrationEventMapper.ts  outboxEventPublisher.ts
+      database/                     kyselyWalletRepository.ts  kyselyBalanceDao.ts  kyselyTransactionRunner.ts  database.ts
+      catalog/jsonAssetCatalog.ts   lê o markets.json na subida
+      platform/                     resilience/  messaging/  http/  security/   (copiados do account e adaptados)
+      contracts/
+        published/events/           wallet.fundsReserved.v1  wallet.fundsReservationRejected.v1  wallet.balanceChanged.v1
+        published/proto/wallet.proto
+        consumed/events/            account.created.v1  order.placed.v1  order.voided.v1
+                                    matching.tradeExecuted.v1  matching.orderRemoved.v1
+        consumed/proto/account.proto
+        envelope.schema.json  markets.json
+      generated/
+      api.ts  worker.ts  migrate.ts
+  test/
+    fakes/  support/
+```
+
+### `.env.example`
+
+```bash
+API_PORT=3000
+GRPC_PORT=50051
+DATABASE_HOST=wallet-db
+DATABASE_PORT=5432
+DATABASE_NAME=wallet
+POSTGRES_PASSWORD=wallet-postgres-dev
+DATABASE_MIGRATOR_USER=wallet_migrator
+DATABASE_MIGRATOR_PASSWORD=wallet-migrator-dev
+DATABASE_USER=wallet_app
+DATABASE_PASSWORD=wallet-app-dev
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_USER=wallet
+RABBITMQ_PASSWORD=wallet-rabbitmq-dev
+REDIS_HOST=redis
+REDIS_USER=wallet
+REDIS_PASSWORD=wallet-redis-dev
+ACCOUNT_GRPC_ADDR=account-api:50051
+GRPC_SERVICE_NAME=wallet
+GRPC_SERVICE_TOKEN=wallet-grpc-dev
+GRPC_ALLOWED_CALLERS=account:account-grpc-dev
+RATE_LIMITS_MOVEMENT_PER_IP=30/1m
+RATE_LIMITS_MOVEMENT_PER_ACCOUNT=10/1m
+LOG_LEVEL=debug
 ```
 
 ## 11. Testes principais
@@ -195,4 +256,4 @@ backend/wallet/src/
 |---|---|
 | Unidade | Depósito e saque (limites, ativo inválido) · reserva de compra (`qty × price` em USD) e de venda (`qty` em BTC) · reserva repetida é ignorada · saldo insuficiente considerando reservas abertas · liquidação do comprador devolve a diferença de preço · liquidação do vendedor · **`settle` e `release` em qualquer ordem dão o mesmo saldo final** · liberação por remoção STP (`orderRemoved` com motivo `SELF_TRADE_PREVENTION`) · `ReserveFunds` publica rejeição em vez de lançar erro · corrente "conta existe?" · compensação: `order.voided` antes e depois de `order.placed` termina com saldo intacto · depósito com mais casas que a precisão do ativo é rejeitado |
 | Integração | Conflito de `version` com duas transações simultâneas · `check` do banco barra saldo negativo · inbox ignora `tradeExecuted` duplicado · ledger registra cada mudança |
-| Contrato | Eventos publicados validam nos schemas · `WalletService` implementa o `.proto` |
+| Contrato | Eventos publicados validam nos schemas · `WalletService` implementa o `.proto` · `GetBalances` recusa token errado (`UNAUTHENTICATED`) e chamador fora da allowlist (`PERMISSION_DENIED`) |

@@ -23,8 +23,8 @@ backend/
   docker-compose.yml          ← sobe a plataforma inteira (include de todos os composes)
   docker-compose.runtime.yml  ← override com as imagens finais (E2E)
   infra/                      ← infraestrutura compartilhada; nenhum código de serviço
-    docker-compose.yml        ← security-init + RabbitMQ único + Redis + edge proxy + rede trading-net
-    security/                 ← imagem do security-init (CA, certificados, senhas, definitions.json, users.acl)
+    docker-compose.yml        ← RabbitMQ único + Redis + edge proxy + rede trading-net
+    .env.example              ← credenciais de dev do RabbitMQ e do Redis (§2.2)
     rabbitmq/                 ← configuração do broker
     edge/nginx.conf           ← roteamento REST público → serviços
     contracts/                ← originais sem dono: envelope.schema.json, markets.json (+ schema)
@@ -36,19 +36,22 @@ backend/
     package.json  package-lock.json
     tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
     docker-compose.yml        ← account-api, account-worker, account-migrate, account-db (sobe sozinho)
-    docker-compose.platform.yml ← só a ligação com a plataforma (ex.: o banco espera o security-init)
+    .env.example              ← configuração e credenciais de dev do serviço (§2.2)
+    docker-compose.platform.yml ← só a ligação com a plataforma (ex.: o worker espera o rabbitmq)
     docker-compose.runtime.yml  ← imagens finais, sem Watch
     docker-compose.test.yml     ← testes de integração com infra efêmera e rede isolada
+    .env.test.example         ← hosts e credenciais dos containers efêmeros de teste
     Dockerfile                ← contexto de build = esta pasta
-    contracts/                ← published/ (dono) e consumed/ (cópias), envelope, markets.json
     migrations/
     src/
-      domain/  application/
+      domain/                 ← entities/, valueObjects/, domainEvents/, domainServices/
+      application/            ← usecases/, dtos/, contracts/
       infra/
-        adapters/             ← inbound/outbound do serviço
-        platform/             ← RNF copiados do template: resilience/, messaging/, http/, security/
-        main/                 ← api.ts, worker.ts, migrate.ts
-    test/support/             ← helpers de teste copiados do template
+        http/ grpc/ messaging/ database/
+        platform/             ← RNF escritos no serviço: resilience/, messaging/, http/, security/
+        contracts/            ← published/ (dono) e consumed/ (cópias), envelope, markets.json
+        api.ts  worker.ts  migrate.ts
+    test/                     ← fakes/ (fakes das portas) e support/ (helpers de teste)
   wallet/       (mesma estrutura)
   order/        (mesma estrutura)
   matching/     (mesma estrutura, sem api pública)
@@ -63,10 +66,9 @@ backend/
 
 | Serviço | Imagem | Porta host | Observação |
 |---|---|---|---|
-| `security-init` | imagem própria de `backend/infra/security/` | — | Roda uma vez antes de tudo: gera CA local, certificados por serviço, senhas e as configurações de usuário do RabbitMQ e do Redis no volume `trading-secrets` ([autenticação §1](08-autenticacao-entre-servicos.md#1-segredos-e-certificados-no-ambiente-local)). |
-| `rabbitmq` | `rabbitmq:4-management-alpine` | 5672, 15672 (painel) | **Único broker** da plataforma. Carrega o `definitions.json` (vhost, usuários, permissões e exchanges) gerado pelo `security-init`. Healthcheck `rabbitmq-diagnostics -q check_running` (o `ping` responde antes de o nó terminar de subir). |
+| `rabbitmq` | `rabbitmq:4-management-alpine` | 5672, 15672 (painel) | **Único broker** da plataforma. Sobe com o vhost, os usuários por serviço, as permissões e as exchanges, com as senhas do `.env` da infra. Healthcheck `rabbitmq-diagnostics -q check_running` (o `ping` responde antes de o nó terminar de subir). |
 | `edge` | `nginx:alpine` | 8080 | Reverse proxy da API pública REST. Sem regra de negócio; aplica rate limit por IP, limites de conexão e microcache ([rate limiting §2](07-rate-limiting.md#2-camada-1--edge-nginx)). |
-| `redis` | `redis:7-alpine` | 6379 | Carrega o `users.acl` do `security-init` (um usuário por serviço). Contadores de rate limit e lista de bloqueio, compartilhados entre réplicas. Técnico, como o broker; não guarda dado de domínio ([rate limiting §8](07-rate-limiting.md#8-infraestrutura)). |
+| `redis` | `redis:7-alpine` | 6379 | Sobe com um usuário por serviço, com as senhas do `.env` da infra. Contadores de rate limit e lista de bloqueio, compartilhados entre réplicas. Técnico, como o broker; não guarda dado de domínio ([rate limiting §8](07-rate-limiting.md#8-infraestrutura)). |
 
 Cria a rede **`trading-net`**, que os composes dos serviços declaram de forma idêntica (§2.1).
 
@@ -95,27 +97,82 @@ A rede é declarada **igual** em todos os composes, e não como `external`. Com 
 - **Todos os containers** (serviços, bancos, RabbitMQ, Redis, edge) entram na `trading-net`.
 - Numa rede `bridge` definida pelo usuário, o Docker tem **DNS interno**: cada container é encontrado pelo **nome do serviço no compose**. Ninguém usa IP.
 - Por isso os nomes de serviço são **fixos e únicos na plataforma**: `rabbitmq`, `edge`, `<svc>-db`, `<svc>-api`, `<svc>-worker`. Dois composes não podem usar o mesmo nome.
-- **Endereços ficam no próprio `docker-compose.yml`**, em `environment`, já com o nome DNS:
-  ```yaml
-  environment:
-    DATABASE_HOST: wallet-db
-    DATABASE_NAME: wallet
-    DATABASE_USER: wallet_app
-    DATABASE_PASSWORD_FILE: /run/secrets/wallet-db-app-password
-    RABBITMQ_HOST: rabbitmq
-    RABBITMQ_USER: wallet
-    RABBITMQ_PASSWORD_FILE: /run/secrets/wallet-rabbitmq-password
-    REDIS_HOST: redis
-    REDIS_USER: wallet
-    REDIS_PASSWORD_FILE: /run/secrets/wallet-redis-password
-    ACCOUNT_GRPC_ADDR: account-api:50051
-    TLS_CA_FILE: /run/secrets/ca.crt
-    TLS_CERT_FILE: /run/secrets/wallet.crt
-    TLS_KEY_FILE: /run/secrets/wallet.key
-  ```
-  Endereços vêm do compose com nome DNS; **senhas, chaves e certificados nunca**: o código lê o conteúdo dos arquivos `*_FILE`, montados pelo volume `trading-secrets` ([autenticação §1](08-autenticacao-entre-servicos.md#1-segredos-e-certificados-no-ambiente-local)). **Não é preciso `.env` para comunicação.** `.env` só existe, opcionalmente, para sobrescrever algo localmente (ex.: nível de log).
+- **Endereços e credenciais vêm do `.env` de cada compose** (§2.2), sempre com o nome DNS, nunca IP.
 - Dentro da rede, as **portas são as internas e iguais em todos os serviços** (REST `3000`, gRPC `50051`, Postgres `5432`). As portas do host (§3) existem só para acessar de fora do Docker durante a depuração.
-- Isolamento não depende da rede: cada serviço tem credenciais próprias em cada canal (mTLS no gRPC, usuário no RabbitMQ, Postgres e Redis), com o mínimo de permissão ([autenticação entre serviços](08-autenticacao-entre-servicos.md)).
+- Isolamento não depende da rede: cada serviço tem credenciais próprias em cada canal (token no gRPC, usuário no RabbitMQ, Postgres e Redis), com o mínimo de permissão ([autenticação entre serviços](08-autenticacao-entre-servicos.md)).
+
+## 2.2 `.env.example` por compose
+
+Cada compose tem, ao lado dele, um **`.env.example` versionado**, com os valores de desenvolvimento já prontos para rodar em container:
+
+| Onde | O que tem |
+|---|---|
+| `backend/infra/.env.example` | Usuário e senha de admin do RabbitMQ; usuário e senha de cada serviço no RabbitMQ e no Redis |
+| `backend/<svc>/.env.example` | Hosts (nomes DNS), portas, nome do banco, usuários e senhas do Postgres (superusuário, `<svc>_migrator`, `<svc>_app`), usuário e senha do serviço no RabbitMQ e no Redis, endereço gRPC de quem ele chama, nome e token gRPC do serviço e quem pode chamá-lo (§2.3), nível de log, limites de rate limit |
+
+Para subir: `cp .env.example .env` em cada pasta. O `.env` está no `.gitignore`; o `.env.example` é a referência e sempre tem todas as variáveis. O compose lê o `.env` com `env_file: .env`.
+
+Exemplo `backend/wallet/.env.example`:
+
+```bash
+DATABASE_HOST=wallet-db
+DATABASE_PORT=5432
+DATABASE_NAME=wallet
+POSTGRES_PASSWORD=wallet-postgres-dev
+DATABASE_MIGRATOR_USER=wallet_migrator
+DATABASE_MIGRATOR_PASSWORD=wallet-migrator-dev
+DATABASE_USER=wallet_app
+DATABASE_PASSWORD=wallet-app-dev
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_USER=wallet
+RABBITMQ_PASSWORD=wallet-rabbitmq-dev
+REDIS_HOST=redis
+REDIS_USER=wallet
+REDIS_PASSWORD=wallet-redis-dev
+ACCOUNT_GRPC_ADDR=account-api:50051
+GRPC_SERVICE_NAME=wallet
+GRPC_SERVICE_TOKEN=wallet-grpc-dev
+GRPC_ALLOWED_CALLERS=account:account-grpc-dev
+LOG_LEVEL=debug
+```
+
+- As senhas são **só de desenvolvimento**, e é por isso que podem estar no git. Em qualquer outro ambiente, as variáveis vêm do gerenciador de segredos (§6).
+- A senha do serviço no RabbitMQ e no Redis aparece em dois lugares: no `.env` da infra (que cria o usuário) e no `.env` do serviço (que conecta). Os dois `.env.example` usam o mesmo valor.
+- Variável nova no código = variável nova no `.env.example` no mesmo commit.
+
+## 2.3 Quem está chamando o gRPC
+
+O gRPC interno confere **qual serviço está chamando** antes de executar o método. O jeito é simples: um token por serviço, no `.env`.
+
+**Quem chama** manda dois headers no metadata de toda chamada:
+
+```
+x-service-name:  wallet
+x-service-token: wallet-grpc-dev
+```
+
+**Quem recebe** tem no `.env` a lista de quem pode chamar e o token de cada um, e confere os dois antes do handler:
+
+```bash
+# backend/account/.env.example
+GRPC_ALLOWED_CALLERS=wallet:wallet-grpc-dev
+```
+```bash
+# backend/wallet/.env.example
+ACCOUNT_GRPC_ADDR=account-api:50051
+GRPC_SERVICE_NAME=wallet
+GRPC_SERVICE_TOKEN=wallet-grpc-dev
+```
+
+| Situação | Resposta |
+|---|---|
+| Nome e token batem com a lista | Executa o método |
+| Nome fora da lista ou token errado | `UNAUTHENTICATED`, sem retry |
+| Nome certo, mas sem permissão para aquele método | `PERMISSION_DENIED`, sem retry ([autenticação §2](08-autenticacao-entre-servicos.md#2-grpc-interno-token--allowlist)) |
+
+A checagem é um interceptor em `src/infra/platform/security/`, que roda antes de qualquer handler. O token do chamador aparece em dois `.env.example` (o de quem chama e o de quem recebe), com o mesmo valor.
+
+O tráfego gRPC não é criptografado: fica dentro da `trading-net`. Fora do ambiente local, o token vem do gerenciador de segredos (§6), e TLS pode ser ligado no canal sem mudar essa checagem.
 
 ---
 
@@ -126,15 +183,15 @@ Todo serviço segue o mesmo molde. Exemplo `backend/wallet/docker-compose.yml`:
 | Container | Comando (dev) | Depende de |
 |---|---|---|
 | `wallet-db` | `postgres:17-alpine`, volume `wallet-db-data` | — |
-| `wallet-migrate` | `tsx src/infra/main/migrate.ts` (roda e sai) | `wallet-db` saudável |
-| `wallet-api` | `tsx watch src/infra/main/api.ts` (REST + gRPC) | `wallet-migrate` concluído |
-| `wallet-worker` | `tsx watch src/infra/main/worker.ts` (consumidores + outbox relay) | `wallet-migrate` concluído, `rabbitmq` |
+| `wallet-migrate` | `tsx src/infra/migrate.ts` (roda e sai) | `wallet-db` saudável |
+| `wallet-api` | `tsx watch src/infra/api.ts` (REST + gRPC) | `wallet-migrate` concluído |
+| `wallet-worker` | `tsx watch src/infra/worker.ts` (consumidores + outbox relay) | `wallet-migrate` concluído, `rabbitmq` |
 
-O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e sobe sozinho, desde que a infraestrutura compartilhada já esteja de pé. O que só faz sentido dentro da plataforma (por exemplo, o banco esperar o `security-init` criar os segredos) fica em `docker-compose.platform.yml`, que o `backend/docker-compose.yml` inclui junto: `include: [{ path: [<svc>/docker-compose.yml, <svc>/docker-compose.platform.yml] }]`. A imagem de execução (sem watch, com `dist/`) vem do override `docker-compose.runtime.yml` (§3.2).
+O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e sobe sozinho, desde que a infraestrutura compartilhada já esteja de pé. O que só faz sentido dentro da plataforma (por exemplo, o worker esperar o `rabbitmq` ficar saudável) fica em `docker-compose.platform.yml`, que o `backend/docker-compose.yml` inclui junto: `include: [{ path: [<svc>/docker-compose.yml, <svc>/docker-compose.platform.yml] }]`. A imagem de execução (sem watch, com `dist/`) vem do override `docker-compose.runtime.yml` (§3.2).
 
 - **Mesma imagem, processos diferentes.** `api` e `worker` escalam de forma independente, porque o workload é diferente: `api` responde request; `worker` consome fila.
 - **Um Postgres por serviço**, no compose do próprio serviço. Banco `wallet`, schema `wallet`. Ninguém mais conecta nele.
-- Configuração por variável de ambiente declarada no próprio compose, usando nomes DNS da `trading-net` (§2.1). Sem IP, sem `.env` obrigatório.
+- Configuração por variável de ambiente, vinda do `.env` do serviço (§2.2), usando nomes DNS da `trading-net`. Sem IP.
 - Healthcheck em todo container de longa duração (`/health` no `api`; o `worker` também expõe `/health` numa porta interna).
 - `<svc>-migrate` usa o usuário `<svc>_migrator`; `api` e `worker` usam `<svc>_app`, que não altera estrutura ([autenticação §4](08-autenticacao-entre-servicos.md#4-postgres-dois-usu%C3%A1rios-por-servi%C3%A7o)).
 
@@ -153,22 +210,8 @@ services:
       context: .                        # the service folder only
       target: dev
     working_dir: /app
-    command: sh -c "npm run proto:gen && npx tsx watch src/infra/main/api.ts"
-    environment:
-      DATABASE_HOST: wallet-db
-      DATABASE_NAME: wallet
-      DATABASE_USER: wallet_app
-      DATABASE_PASSWORD_FILE: /run/secrets/wallet-db-app-password
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: wallet
-      RABBITMQ_PASSWORD_FILE: /run/secrets/wallet-rabbitmq-password
-      REDIS_HOST: redis
-      REDIS_USER: wallet
-      REDIS_PASSWORD_FILE: /run/secrets/wallet-redis-password
-      ACCOUNT_GRPC_ADDR: account-api:50051
-      TLS_CA_FILE: /run/secrets/ca.crt
-      TLS_CERT_FILE: /run/secrets/wallet.crt
-      TLS_KEY_FILE: /run/secrets/wallet.key
+    command: sh -c "npm run proto:gen && npx tsx watch src/infra/api.ts"
+    env_file: .env                      # copied from .env.example (§2.2)
     networks: [trading-net]
     depends_on:
       wallet-migrate:
@@ -178,9 +221,11 @@ services:
         - action: sync                  # own code: hot reload via tsx watch
           path: ./src
           target: /app/src
+          ignore:
+            - infra/contracts/
         - action: sync+restart          # contracts: restart regenerates the gRPC code
-          path: ./contracts
-          target: /app/contracts
+          path: ./src/infra/contracts
+          target: /app/src/infra/contracts
         - action: sync                  # new migrations, applied by re-running wallet-migrate
           path: ./migrations
           target: /app/migrations
@@ -199,7 +244,7 @@ O `wallet-worker` tem o mesmo bloco `develop.watch`, com `command` apontando par
 | Alteração | Precisa rebuild? | O que acontece |
 |---|---|---|
 | Código do serviço (`src/`) | **Não** | `sync` → `tsx watch` reinicia em ~1 s |
-| `contracts/` do serviço (inclusive `.proto`) | **Não** | `sync+restart` → o comando regenera o código do gRPC e sobe |
+| `src/infra/contracts/` do serviço (inclusive `.proto`) | **Não** | `sync+restart` → o comando regenera o código do gRPC e sobe |
 | Nova migração | **Não** | `sync` + `docker compose run --rm wallet-migrate` |
 | Variável de ambiente no compose | **Não** | `docker compose up -d` recria só o container, com a mesma imagem |
 | Teste | **Não** | `docker compose exec wallet-api npx vitest` (modo watch) |
@@ -213,7 +258,7 @@ docker compose -f backend/docker-compose.yml up --watch
 
 ### 3.2 Modo de execução (imagem final)
 
-`docker-compose.runtime.yml`, ao lado de cada `docker-compose.yml`, sobrescreve só o necessário: `target: runtime`, `command: node dist/infra/main/api.js` e **sem** `develop`. É o modo usado pelos testes E2E e para validar a imagem que seria implantada.
+`docker-compose.runtime.yml`, ao lado de cada `docker-compose.yml`, sobrescreve só o necessário: `target: runtime`, `command: node dist/infra/api.js` e **sem** `develop`. É o modo usado pelos testes E2E e para validar a imagem que seria implantada.
 ```bash
 docker compose -f backend/docker-compose.yml -f backend/docker-compose.runtime.yml up -d --build
 ```
@@ -265,7 +310,7 @@ Multi-stage, com testes de unidade dentro do build:
 
 1. **deps** — `npm ci` com devDependencies, a partir do `package.json` e do `package-lock.json` **do serviço**. O contexto de build é só a pasta do serviço: nada de fora dela entra na imagem.
 2. **dev** — `deps` + código-fonte + `tsx`. É o alvo do `docker-compose.yml`: o código é atualizado pelo Compose Watch, sem rebuild (§3.1). Roda como **root**, porque gera arquivos (código do protobuf, arquivos temporários do Vitest) em diretórios criados pela camada `deps`. Só a imagem final é não-root.
-3. **build** — gera o código do gRPC (`src/infra/generated/`) a partir dos `.proto` de `contracts/`, compila e **roda os testes de unidade**. Teste vermelho = imagem não é gerada.
+3. **build** — gera o código do gRPC (`src/infra/generated/`) a partir dos `.proto` de `src/infra/contracts/`, compila e **roda os testes de unidade**. Teste vermelho = imagem não é gerada.
 4. **runtime** — `node:26-alpine`, só dependências de produção e `dist/`. Usuário não-root (`node`, uid 1000), coberto pelo E2E. Alvo do `docker-compose.runtime.yml` (§3.2).
 
 Testes de integração **não** rodam no build, porque precisam de Postgres/RabbitMQ. Eles rodam no perfil `test` do compose (ver [testes](05-estrategia-de-testes.md#5-como-rodar)).

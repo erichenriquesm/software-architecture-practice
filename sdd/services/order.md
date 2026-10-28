@@ -21,7 +21,7 @@ HTTP de escrita (criar/cancelar) e de leitura (histórico), mais uma máquina de
 
 | Value Object | Regra |
 |---|---|
-| `MarketId` | Formato `BASE-QUOTE` e presente no catálogo `contracts/markets.json` (cópia do original da infra) ([Q5](../99-decisoes.md#q5)) |
+| `MarketId` | Formato `BASE-QUOTE` e presente no catálogo `src/infra/contracts/markets.json` (cópia do original da infra) ([Q5](../99-decisoes.md#q5)) |
 | `Side` | `buy` \| `sell` |
 | `Quantity`, `Price` | `> 0`, decimal, escala 8 |
 | `MarketFilters` | Do catálogo. **Preço múltiplo do tick** (`0.01`), **quantidade múltipla do step** (`0.00001`), **`qty × price ≥ minNotional`** (`5 USD`). Fora do filtro → rejeita, nunca arredonda ([Q11](../99-decisoes.md#q11)). |
@@ -83,7 +83,7 @@ Reações aos eventos de domínio (registradas no composition root, [princípios
 
 As regras "conta existe" e "saldo suficiente considerando ordens em aberto" do objetivo são garantidas pelo `wallet` na reserva (§5.2 do [design estratégico](../02-design-estrategico.md#52-placeorder-saga-coreografada)). Por isso o `PlaceOrder` responde `pending`, e não `open`.
 
-Portas: `OrderRepository`, `OrderDao`, `MarketCatalog`, `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`, `Clock`.
+Contratos (interfaces em `application/contracts/`): `OrderRepository`, `OrderDao`, `MarketCatalog`, `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`, `Clock`.
 
 Sagas em que este serviço participa: **S2** (dono), **S3** (fills), **S4** (dono). Ver [06-sagas.md](../06-sagas.md).
 
@@ -157,15 +157,73 @@ Por que duas tabelas: a de escrita guarda o que o agregado precisa para decidir 
 ## 8. Estrutura
 
 ```
-backend/order/src/
-  domain/        order.ts, orderStatus.ts, valueObjects/{marketId, side, quantity, price}.ts, events.ts, errors.ts
-  application/   usecases/{placeOrder, cancelOrder, acceptOrder, rejectOrder, expireOrder, applyFill, registerRemoval, revertCancelRequest, getOrders, getOrder}/
-                   (cada pasta: <useCase>.ts, <useCase>Input.ts, <useCase>Output.ts)
-                 repositories/orderRepository.ts · daos/orderDao.ts · ports/{marketCatalog, transactionRunner, domainEventDispatcher, idGenerator, clock}.ts
-  infra/         adapters/inbound/{http, messaging/{fundsReservation, matchingResults}Consumer, scheduler/expirePendingOrdersJob}
-                 adapters/outbound/{persistence/{repositories, daos, projections/orderViewWriter}, messaging/outboxEventPublisher,
-                                    catalog/jsonMarketCatalog}
-                 main/{api, worker, migrate}.ts
+backend/order/
+  .env.example  .env.test.example
+  docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
+  Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
+  initdb/roles.sh
+  migrations/
+  src/
+    domain/
+      entities/order.ts
+      valueObjects/                 orderStatus.ts  marketId.ts  side.ts  quantity.ts  price.ts  marketFilters.ts
+      domainEvents/                 orderPlaced.ts  orderAccepted.ts  orderCancelRequested.ts  orderVoided.ts
+      domainServices/               (vazio por enquanto: toda regra cabe no agregado Order)
+      errors.ts
+    application/
+      usecases/                     placeOrder.ts  cancelOrder.ts  acceptOrder.ts  rejectOrder.ts  expireOrder.ts
+                                    applyFill.ts  registerRemoval.ts  revertCancelRequest.ts  getOrders.ts  getOrder.ts
+      dtos/                         um <useCase>Dto.ts por caso de uso  ·  orderView.ts
+      contracts/                    orderRepository.ts  orderDao.ts  marketCatalog.ts  transactionRunner.ts
+                                    domainEventDispatcher.ts  idGenerator.ts  clock.ts
+    infra/
+      http/                         place_order, cancel_order, GET de ordens (rotas REST)
+      messaging/
+        consumers/                  fundsReservationConsumer.ts  matchingResultsConsumer.ts
+        integrationEventMapper.ts  outboxEventPublisher.ts
+      scheduler/expirePendingOrdersJob.ts
+      database/                     kyselyOrderRepository.ts  kyselyOrderDao.ts  orderViewProjector.ts
+                                    kyselyTransactionRunner.ts  database.ts
+      catalog/jsonMarketCatalog.ts  lê o markets.json na subida
+      platform/                     resilience/  messaging/  http/   (copiados e adaptados; sem gRPC, sem security/)
+      contracts/
+        published/events/           order.placed.v1  order.accepted.v1  order.cancelRequested.v1  order.voided.v1
+        consumed/events/            wallet.fundsReserved.v1  wallet.fundsReservationRejected.v1
+                                    matching.tradeExecuted.v1  matching.orderRemoved.v1  matching.orderCancelRejected.v1
+        envelope.schema.json  markets.json
+      api.ts  worker.ts  migrate.ts
+  test/
+    fakes/  support/
+```
+
+O `order` não tem gRPC: não expõe nem chama nenhum método síncrono.
+
+### `.env.example`
+
+```bash
+API_PORT=3000
+DATABASE_HOST=order-db
+DATABASE_PORT=5432
+DATABASE_NAME=order
+POSTGRES_PASSWORD=order-postgres-dev
+DATABASE_MIGRATOR_USER=order_migrator
+DATABASE_MIGRATOR_PASSWORD=order-migrator-dev
+DATABASE_USER=order_app
+DATABASE_PASSWORD=order-app-dev
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_USER=order
+RABBITMQ_PASSWORD=order-rabbitmq-dev
+REDIS_HOST=redis
+REDIS_USER=order
+REDIS_PASSWORD=order-redis-dev
+ORDER_PENDING_TIMEOUT=2m
+EXPIRE_PENDING_ORDERS_INTERVAL=10s
+RATE_LIMITS_ORDERS_PER_IP=100/10s
+RATE_LIMITS_ORDERS_PER_ACCOUNT=50/10s
+RATE_LIMITS_ORDERS_PER_ACCOUNT_DAILY=100000/24h
+RATE_LIMITS_PRIVATE_READ_PER_IP=600/1m
+RATE_LIMITS_PRIVATE_READ_PER_ACCOUNT=300/1m
+LOG_LEVEL=debug
 ```
 
 ## 9. Testes principais
