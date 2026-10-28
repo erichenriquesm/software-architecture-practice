@@ -39,6 +39,8 @@ O microcache de 1 s não altera a consistência na prática: as projeções já 
 
 Algoritmo: **contador de janela deslizante** com dois buckets ponderados (`anterior × (1 − tempoDecorrido/janela) + atual`), executado num script Lua no **Redis** (atômico) e compartilhado entre réplicas do mesmo serviço. Guardar cada requisição (lista ordenada) foi descartado: a cota de 100.000 ordens por 24 h viraria 100 mil itens por conta. Chave: `<service>:rl:<grupo>:<accountId|ip>:<inícioDoBucket>`, com expiração de duas janelas.
 
+**IP do cliente:** cada serviço confia no `X-Forwarded-For` só quando quem conecta é o `edge` (o nome em `TRUSTED_PROXY_HOST`, resolvido por DNS na subida e a cada 30 s; se a consulta falha, fica o último endereço). De qualquer outro par vale o endereço da conexão, então quem chama um serviço direto nunca escolhe o próprio bucket de rate limit.
+
 ### 3.1 Grupos e limites
 
 | Grupo | Endpoints | Limite por **IP** | Limite por **conta** | Por quê |

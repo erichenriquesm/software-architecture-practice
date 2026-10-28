@@ -24,6 +24,7 @@ HTTP de escrita (criar/cancelar) e de leitura (histórico), mais uma máquina de
 | `MarketId` | Formato `BASE-QUOTE` e presente no catálogo `src/infra/schemas/markets.json` (cópia do original da infra) ([Q5](../99-decisoes.md#q5)) |
 | `Side` | `buy` \| `sell` |
 | `Quantity`, `Price` | `> 0`, decimal, escala 8 |
+| Teto (`Quantity.ofOrder`, `Price`) | Quantidade pedida `≤ 1 000 000` e preço `≤ 1 000 000 000` (comparados com `decimal.js`); acima → `InvalidOrderDataError` → `422`. Valores derivados, como `fillValue`, não têm teto. |
 | `MarketFilters` | Do catálogo. **Preço múltiplo do tick** (`0.01`), **quantidade múltipla do step** (`0.00001`), **`qty × price ≥ minNotional`** (`5 USD`). Fora do filtro → rejeita, nunca arredonda ([Q11](../99-decisoes.md#q11)). |
 
 **Status é derivado**, nunca atribuído à mão. Isso torna a ordem tolerante a eventos fora de ordem:
