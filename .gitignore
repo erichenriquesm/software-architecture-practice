@@ -10,3 +10,6 @@ coverage
 /backend/order/
 /backend/matching/
 /backend/market-data/
+
+# The web client is its own repository, cloned here (sdd/09-frontend.md)
+/frontend/

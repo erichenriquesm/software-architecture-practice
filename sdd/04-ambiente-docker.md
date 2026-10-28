@@ -29,7 +29,7 @@ cd software-architecture-practice/backend && make clone && make up
 ```
 /
   backend/     ← infra local, scripts, Makefile da plataforma e os clones dos serviços (este documento)
-  frontend/    ← cliente web (fora do escopo desta spec por enquanto)
+  frontend/    ← cliente web, repositório próprio clonado aqui ([frontend](09-frontend.md))
   sdd/         ← specs
   README.md    ← o que é a plataforma, os repositórios e como subir
   .gitignore

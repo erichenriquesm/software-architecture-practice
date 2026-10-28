@@ -25,18 +25,19 @@ O front só conhece o **edge** ([design estratégico](02-design-estrategico.md))
 
 | Papel | Escolha | Por quê |
 |---|---|---|
-| UI | React 18 + TypeScript `strict` | Os componentes do Lastro já são React |
-| Build e dev | Vite | Dev server rápido, roda no container com Compose Watch |
-| Rotas | React Router (data router) | Rotas lazy e guard central |
-| Server state | TanStack Query | Cache, polling, dedupe e invalidação sem store global |
-| Formulários | React Hook Form + Zod | Schema único para validação e tipo |
+| UI | Vue 3 (`<script setup lang="ts">`) + TypeScript `strict`, checado por `vue-tsc` | SFC com Composition API: lógica em composables, template só apresenta |
+| Build e dev | Vite + `@vitejs/plugin-vue` | Dev server com HMR, roda no container com Compose Watch |
+| Rotas | Vue Router | Rotas lazy e guard central (`beforeEach`) |
+| Estado de UI | Pinia (setup stores) | Só o que atravessa rotas: sessão do usuário e tema |
+| Server state | TanStack Query (`@tanstack/vue-query`) | Cache, polling, dedupe e invalidação sem store global |
+| Formulários | Zod + composable `useForm` próprio | Schema único para validação e tipo; o estado do formulário é um composable, sem biblioteca de form |
 | Decimal | `decimal.js` | O mesmo do backend: preço, quantidade e saldo nunca viram `number` |
-| Testes | Vitest + Testing Library + MSW; Playwright no E2E | Mesma pirâmide do [backend](05-estrategia-de-testes.md) |
-| Catálogo | Storybook | Story de cada componente do Lastro |
+| Testes | Vitest + jsdom + Testing Library (Vue) + MSW; Playwright no E2E | Mesma pirâmide do [backend](05-estrategia-de-testes.md) |
+| Catálogo | O design system [Lastro](https://claude.ai/artifact/TxB2hTYzK7GWCJwqX84WzH) | Tokens, regras e previews de cada componente; o código dos componentes vive em `src/lastro/` |
 
 As dependências entram com a mesma regra do backend: versão exata, aprovada antes de entrar no `package.json`.
 
-O front é um repositório próprio, como cada serviço ([README, decisão 17](README.md)). Roda em Docker, num compose dele na `trading-net`, e o edge serve `/` a partir dele. Alterar código não exige rebuild (Compose Watch + HMR do Vite).
+O front é um **repositório próprio** (`software-architecture-practice-frontend`), clonado em `frontend/` do guarda-chuva, como cada serviço em `backend/` ([README, decisão 17](README.md)). Roda em Docker, num compose dele na `trading-net`, e o edge serve `/` a partir dele, na mesma origem da API (o cookie de sessão é `SameSite=Strict`). Alterar código não exige rebuild (Compose Watch + HMR do Vite). As rotas do front são em português (`/mercado`, `/carteira`, `/ordens`) e não colidem com as da API.
 
 ---
 
@@ -46,8 +47,9 @@ Por **contexto de negócio**, nunca por tipo de arquivo. Os contextos espelham o
 
 ```
 src/
-  app/            ← entrada, providers, router, guard de rota
-  pages/          ← uma por rota; só compõe contextos
+  app/            ← main.ts, App.vue, router e guard, plugins (Pinia, Vue Query)
+  pages/          ← uma por rota (`XxxPage.vue`); só compõe contextos
+  lastro/         ← design system: tokens.css e componentes `Lt*` (LtButton, LtSideToggle, LtAmountField, LtOrderBook…)
   contexts/
     market/       ← último preço, livro, profundidade, negociações
     orderTicket/  ← boleta, confirmação, envio
@@ -61,22 +63,32 @@ src/
 Regras:
 
 1. **Importa só para baixo:** `pages → contexts → entities → shared`. Um contexto nunca importa outro; quando dois precisam do mesmo dado, ele sobe para `entities/` ou a página orquestra os dois. O lint garante (`no-restricted-imports`) e um teste de arquitetura (dependency-cruiser, como no backend) também.
-2. **Complexidade proporcional.** Contexto simples tem arquivos soltos. Contexto complexo (`orderTicket`, `wallet`) se divide como o backend: `domain/` (VOs e regras puras), `application/` (hooks de caso de uso, com `XxxInput`/`XxxOutput`), `infra/` (`*.api.ts` e o mapper), `ui/` (componentes). Não crie a pasta antes de precisar.
-3. **Alias `@/`** em vez de caminhos relativos longos; o mesmo alias no Vite e no `tsconfig`.
-4. Componente de tela fica no contexto. Componente reutilizável entre contextos é do **Lastro** e entra lá com preview e story, nunca como CSS local.
+2. **Camadas dentro do contexto**, como no backend: `domain/` (VOs e regras puras, sem Vue), `application/` (composables de caso de uso `useXxx`, com `XxxInput`/`XxxOutput`, e o store Pinia quando o contexto tem um), `infra/` (`*.api.ts` e o mapper) e `ui/` (componentes `.vue`). Contexto simples pode ter arquivos soltos; não crie pasta antes de precisar.
+3. **Quem faz o quê:**
+
+   | Peça | Faz | Não faz |
+   |---|---|---|
+   | `*.api.ts` | Uma função por endpoint, tipada, pelo cliente HTTP | Lógica, estado, mensagem de erro |
+   | Composable `useXxx` | Caso de uso: chama a API via Vue Query, gera a `Idempotency-Key`, mapeia status para tipo de erro, devolve refs | Tocar no DOM, importar componente |
+   | Store Pinia | Estado de UI que atravessa rotas (sessão, tema) | Guardar resposta da API |
+   | Componente `ui/` | Renderiza props, emite eventos, usa um composable | `fetch`, regra de negócio, conta com decimal |
+   | Página | Compõe contextos de uma rota | Lógica própria |
+
+4. **Alias `@/`** em vez de caminhos relativos longos; o mesmo alias no Vite e no `tsconfig`.
+5. Componente de tela fica no contexto. Componente reutilizável entre contextos é do **Lastro** (`src/lastro/`), com o preview correspondente no design system, nunca como CSS local.
 
 ---
 
 ## 4. Dados e contratos
 
-O fluxo é sempre **tipos → `*.api.ts` → hook → componente**. Componente não faz fetch; hook não chama `fetch` direto.
+O fluxo é sempre **tipos → `*.api.ts` → composable → componente**. Componente não faz fetch; composable não chama `fetch` direto.
 
 - **`*.api.ts`**: um arquivo por contexto, uma função por endpoint, retorno `Promise<T>` tipado, sem lógica e sem efeito colateral.
 - **Mapper na borda:** converte o JSON da API para o modelo do front (`null → undefined`, strings decimais → `Decimal` só onde há conta). O resto do código nunca vê `null`.
-- **Um cliente HTTP só** (`shared/api/client.ts`): base `/`, timeout, `credentials: 'include'`, `X-Request-Id` gerado por requisição, `Idempotency-Key` quando o hook passa uma. Nada de `fetch` cru fora dele.
-- **Server state fica no TanStack Query**, nunca num store global. Store (Zustand ou contexto React) só para estado de UI que atravessa rotas, como o tema.
+- **Um cliente HTTP só** (`shared/api/client.ts`): base `/`, timeout, `credentials: 'include'`, `X-Request-Id` gerado por requisição, `Idempotency-Key` quando o composable passa uma. Nada de `fetch` cru fora dele.
+- **Server state fica no TanStack Query**, nunca num store global. Store Pinia só para estado de UI que atravessa rotas: a sessão (quem está logado, vindo do `/me`) e o tema.
 - **Derivado é calculado**, nunca sincronizado: total da boleta, profundidade a partir do livro, saldo disponível para o lado escolhido.
-- **Tipos de transporte** levam o sufixo do contrato (`PlaceOrderRequest`, `OrderResponse`). Os hooks de caso de uso usam `XxxInput`/`XxxOutput`. Um endpoint tem um tipo só; se dois contextos usam, ele vai para `entities/`.
+- **Tipos de transporte** levam o sufixo do contrato (`PlaceOrderRequest`, `OrderResponse`). Os composables de caso de uso usam `XxxInput`/`XxxOutput`. Um endpoint tem um tipo só; se dois contextos usam, ele vai para `entities/`.
 - **Valores de enum** (`side`, `status`, `reason`) são unions de string com uma fonte única em `entities/`, iguais aos do backend, mudados no mesmo PR. Rótulos num `Record<OrderStatus, string>` ao lado. Nunca a palavra-chave `enum`.
 
 ### 4.1 Dinheiro e quantidade
@@ -89,7 +101,7 @@ Preço, quantidade e saldo trafegam como **string decimal** e assim ficam até a
 |---|---|
 | `GET` com erro de rede, timeout, `503` | Repete com backoff exponencial e jitter, até 3 vezes |
 | `429` | Espera o `Retry-After`, pausa o polling daquela consulta e mostra a contagem ([Estados](https://claude.ai/artifact/HQUEd6yYcP5mNrDwmegSkL)) |
-| `POST` com `Idempotency-Key` (`/deposit`, `/withdraw`, `/place_order`, `/cancel_order`, [Q13](99-decisoes.md#q13)) | Repete **com a mesma chave** em rede, timeout, `503` e `429`. A chave nasce no clique do usuário (uma por intenção), não no `*.api.ts` |
+| `POST` com `Idempotency-Key` (`/deposit`, `/withdraw`, `/place_order`, `/cancel_order`, [Q13](99-decisoes.md#q13)) | Repete **com a mesma chave** em rede, timeout, `503` e `429`. A chave nasce no clique do usuário (uma por intenção), no composable, não no `*.api.ts` |
 | `POST` sem chave (`/signup`, `/login`) | Não repete sozinho |
 | `4xx` de domínio | Nunca repete |
 
@@ -99,7 +111,7 @@ Preço, quantidade e saldo trafegam como **string decimal** e assim ficam até a
 
 ### 4.3 Erros
 
-Cada tipo tem **um canal**, e o status vira mensagem **no hook**, por uma tabela `status → tipo` tipada, nunca num `switch` no componente:
+Cada tipo tem **um canal**, e o status vira mensagem **no composable**, por uma tabela `status → tipo` tipada, nunca num `switch` no componente:
 
 | Erro | Canal |
 |---|---|
@@ -122,7 +134,7 @@ Desenho completo em [autenticação §6](08-autenticacao-entre-servicos.md#6-ide
 - `POST /login` devolve `204` e um cookie `session` `HttpOnly`. O front **não lê, não guarda e não manda token**: o browser envia o cookie sozinho (`credentials: 'include'`, mesma origem do edge).
 - Depois do login, `GET /me` diz quem é o usuário (`accountId`, nome, e-mail). É a primeira chamada ao abrir o app; `401` ali significa "não logado".
 - Os corpos de `/deposit`, `/withdraw`, `/place_order` e `/cancel_order` **não levam `accountId`**. Nas rotas com `:accountId`, use o do `/me`.
-- `POST /logout` encerra a sessão; o front limpa o cache do TanStack Query e vai para `/entrar`.
+- `POST /logout` encerra a sessão; o front limpa o cache do Vue Query e o store de sessão e vai para `/entrar`.
 - Erros: `401 invalidCredentials` no login (mensagem única "E-mail ou senha incorretos."), `429 tooManyLoginAttempts` com `Retry-After` (bloqueio progressivo), `401 unauthenticated` em qualquer rota privada (sessão acabou, §4.3).
 
 No front, a proteção é **declarada em cada rota** (`requiresAuth`) e resolvida num guard central no router, a partir do `/me`. Componente nenhum decide acesso.
@@ -182,7 +194,7 @@ Mesma regra do [backend](05-estrategia-de-testes.md): cada regra no nível mais 
 | Nível | O quê | Como |
 |---|---|---|
 | Unidade | VOs, formatação, schemas, tabela de erros, cálculo da boleta | Vitest puro, sem DOM |
-| Hook de caso de uso | Fluxo de envio, retry com a mesma chave, `429` | Cliente de API injetado por interface, com fake em memória |
+| Composable de caso de uso | Fluxo de envio, retry com a mesma chave, `429` | Cliente de API injetado por interface, com fake em memória |
 | Componente | O que o usuário vê e faz | Testing Library por papel e rótulo, MSW na rede com `onUnhandledRequest: 'error'` |
 | E2E | Cadastro → depósito → ordem → aparece em Ordens | Playwright contra a plataforma em Docker |
 
@@ -193,5 +205,5 @@ Sem snapshot, sem seletor CSS ou test-id quando há papel acessível, sem rede r
 ## 12. Qualidade e entrega
 
 - CI: `typecheck → lint (--max-warnings 0) → test → build`, com lockfile congelado; qualquer falha bloqueia o merge. Tudo dentro do container, como no backend.
-- Storybook: todo componente do Lastro tem story no mesmo PR; antes de criar um componente, procure no catálogo.
+- Todo componente novo do Lastro ganha o preview no design system no mesmo PR; antes de criar um componente, procure no catálogo.
 - Exceção a qualquer regra deste documento exige registro em [decisões](99-decisoes.md).
