@@ -1,8 +1,30 @@
 # software-architecture-practice
 
+![Lastro: plataforma de trading de BTC com microsserviços](sdd/imagens/lastro-capa.png)
+
 Plataforma de trading (compra e venda de ativos digitais, com BTC-USD como exemplo) construída como prática de arquitetura de software: microserviços, DDD, Clean Architecture, CQRS, sagas coreografadas, outbox/inbox e tudo em Docker.
 
+Desafio proposto no curso de Arquitetura de Software do Rodrigo Branas (contas, depósitos e saques, ordens limitadas, livro de ofertas, matching e profundidade), expandido para uma arquitetura de microsserviços com especificação (`sdd/`), backend, front e testes.
+
 Este é o repositório **guarda-chuva**: tem a especificação, a infraestrutura compartilhada e os comandos da plataforma, e **aponta** para um repositório por microserviço.
+
+## O app
+
+O cliente web (**Lastro**) roda em `http://localhost:5173`: mercado com livro de ofertas, profundidade e boleta; carteira com depósito e saque; ordens com filtros, detalhe e cancelamento. Todas as telas cabem na janela, do celular ao 4K, e cada termo tem uma ajuda (?) que explica o que é.
+
+![Tour pelo app: livro de ofertas, clique no preço preenchendo a boleta, carteira e ordens](sdd/imagens/lastro-tour.gif)
+
+| Mercado | Carteira |
+|---|---|
+| ![Mercado: último preço, livro de ofertas com acumulado, profundidade, negociações e boleta](sdd/imagens/mercado.png) | ![Carteira: patrimônio estimado, saldos disponível e em ordens, depósito e saque](sdd/imagens/carteira.png) |
+| **Ordens** | **Detalhe da ordem** |
+| ![Ordens: filtros com contagem, execução por linha e cancelamento](sdd/imagens/ordens.png) | ![Detalhe: andamento, execução e resumo da ordem](sdd/imagens/detalhe.png) |
+
+| Entrar | Celular: mercado | Celular: boleta |
+|---|---|---|
+| ![Tela de entrada com livro de ofertas ao vivo](sdd/imagens/entrar.png) | ![Mercado no celular, com abas](sdd/imagens/celular-mercado.png) | ![Boleta no celular](sdd/imagens/celular-boleta.png) |
+
+As imagens são regeradas com `make readme-media` no repositório do front.
 
 ## Microserviços
 

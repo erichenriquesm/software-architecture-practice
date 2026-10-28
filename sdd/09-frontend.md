@@ -115,7 +115,7 @@ Cada tipo tem **um canal**, e o status vira mensagem **no composable**, por uma 
 
 | Erro | Canal |
 |---|---|
-| Validação do schema | Abaixo do campo, depois de tocado |
+| Validação do schema | Abaixo do campo: erro de formato ao sair de um campo preenchido; campo vazio só acusa depois de tentar enviar |
 | `422` / `409` numa boleta ou formulário | Alerta no topo do formulário, com a mensagem do backend e como resolver |
 | `404` | Estado "não encontrado" da tela |
 | `503` | Faixa de indisponibilidade com nova tentativa |
