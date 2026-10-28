@@ -17,31 +17,41 @@
       "name": "account",
       "password_hash": "__ACCOUNT_HASH__",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
-      "tags": []
+      "tags": [
+        "management"
+      ]
     },
     {
       "name": "wallet",
       "password_hash": "__WALLET_HASH__",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
-      "tags": []
+      "tags": [
+        "management"
+      ]
     },
     {
       "name": "order",
       "password_hash": "__ORDER_HASH__",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
-      "tags": []
+      "tags": [
+        "management"
+      ]
     },
     {
       "name": "matching",
       "password_hash": "__MATCHING_HASH__",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
-      "tags": []
+      "tags": [
+        "management"
+      ]
     },
     {
       "name": "marketData",
       "password_hash": "__MARKETDATA_HASH__",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
-      "tags": []
+      "tags": [
+        "management"
+      ]
     }
   ],
   "permissions": [

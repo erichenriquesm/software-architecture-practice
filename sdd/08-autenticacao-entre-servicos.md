@@ -99,7 +99,8 @@ Como ler: para ligar uma fila própria numa exchange de outro contexto, o Rabbit
 - **`retry` aparece no *write* e no *read* de todos.** *Write* para publicar na fila de atraso e na DLQ; *read* porque toda fila é ligada à exchange `retry`, e ligar fila a uma exchange exige *read* nela.
 - Ninguém usa a exchange padrão (`""`) como dead-letter: isso exigiria *write* em `amq.default`.
 - **Como os usuários são criados:** `backend/infra/rabbitmq/` tem um `definitions.template.json` (vhost, usuários, permissões e exchanges) com as senhas como variáveis (`${ACCOUNT_RABBITMQ_PASSWORD}`…). O script de entrada do container troca as variáveis pelos valores do `.env` da infra e sobe o broker com o arquivo pronto.
-- O usuário admin (do `.env` da infra) só é usado no painel de gestão.
+- **Cada usuário de serviço tem a tag `management`**: entra no painel de gestão (`http://127.0.0.1:15672`) com o próprio usuário e senha do `.env` e vê só o que as permissões da tabela acima já deixam (as filas e exchanges do vhost `trading`), sem poder administrar o broker.
+- O usuário admin (do `.env` da infra) é o único com a tag `administrator`: gerencia usuários, permissões e o broker inteiro.
 - Tentativa fora da permissão → `ACCESS_REFUSED` do broker: erro permanente, alarme.
 
 ---
