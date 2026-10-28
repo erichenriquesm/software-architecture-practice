@@ -1,5 +1,0 @@
-services:
-  account-worker:
-    depends_on:
-      rabbitmq:
-        condition: service_healthy

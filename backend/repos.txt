@@ -1,0 +1,6 @@
+# <folder in backend/> <git url>: cloned by `make clone`, updated by `make pull`
+account https://github.com/erichenriquesm/software-architecture-practice-account.git
+wallet https://github.com/erichenriquesm/software-architecture-practice-wallet.git
+order https://github.com/erichenriquesm/software-architecture-practice-order.git
+matching https://github.com/erichenriquesm/software-architecture-practice-matching.git
+market-data https://github.com/erichenriquesm/software-architecture-practice-market-data.git

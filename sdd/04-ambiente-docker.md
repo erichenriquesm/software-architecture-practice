@@ -4,13 +4,34 @@
 
 ---
 
-## 0. Layout da raiz do repositório
+## 0. Repositórios e layout da raiz
+
+**Um repositório por microserviço**, mais este, que é o **guarda-chuva**: guarda a `sdd/`, a infra compartilhada, os scripts e os `Makefile` da plataforma, e só **aponta** para os serviços. Cada serviço tem descrição e README próprios no repositório dele.
+
+| Serviço | Repositório |
+|---|---|
+| `account` | [software-architecture-practice-account](https://github.com/erichenriquesm/software-architecture-practice-account) |
+| `wallet` | [software-architecture-practice-wallet](https://github.com/erichenriquesm/software-architecture-practice-wallet) |
+| `order` | [software-architecture-practice-order](https://github.com/erichenriquesm/software-architecture-practice-order) |
+| `matching` | [software-architecture-practice-matching](https://github.com/erichenriquesm/software-architecture-practice-matching) |
+| `market-data` | [software-architecture-practice-market-data](https://github.com/erichenriquesm/software-architecture-practice-market-data) |
+
+A lista fica em `backend/repos.txt` (`<pasta> <url>` por linha). `make clone` (em `backend/`) clona em `backend/<serviço>/` os que ainda não estão lá; `make pull` atualiza todos. Essas pastas estão no `.gitignore` do guarda-chuva: cada uma é o clone do repositório do serviço, com o próprio `git`. Não se usa git submodule (versão presa, `submodule update` esquecido e "detached HEAD" no dia a dia); o `make clone` dá o mesmo resultado sem esse custo.
+
+Clonar tudo do zero:
+```bash
+git clone https://github.com/erichenriquesm/software-architecture-practice.git
+```
+```bash
+cd software-architecture-practice/backend && make clone && make up
+```
 
 ```
 /
-  backend/     ← todos os microserviços e a infra local (este documento)
+  backend/     ← infra local, scripts, Makefile da plataforma e os clones dos serviços (este documento)
   frontend/    ← cliente web (fora do escopo desta spec por enquanto)
   sdd/         ← specs
+  README.md    ← o que é a plataforma, os repositórios e como subir
   .gitignore
 ```
 
@@ -20,7 +41,8 @@ Nada de código, `package.json` ou `Dockerfile` na raiz. O que existe hoje na ra
 
 ```
 backend/
-  Makefile                    ← make up / watch / migrate / ps / logs / down / check (§4)
+  Makefile                    ← make clone / pull / up / watch / migrate / ps / logs / down / test / check (§4)
+  repos.txt                   ← os repositórios dos serviços (§0)
   docker-compose.yml          ← sobe a plataforma inteira em ambiente local (include de todos os composes)
   infra/                      ← infraestrutura compartilhada; nenhum código de serviço
     docker-compose.yml        ← RabbitMQ único + Redis + edge proxy + rede trading-net
@@ -31,7 +53,7 @@ backend/
     contracts/                ← originais sem dono: envelope.schema.json, markets.json (+ schema)
   scripts/                    ← só biblioteca padrão do Node, rodados em container
     check-contracts.ts        ← compara cada cópia de contrato com o original do dono
-  account/                    ← projeto STANDALONE (pode virar repositório próprio)
+  account/                    ← clone do repositório do serviço (make clone); projeto STANDALONE
     package.json  package-lock.json
     tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
     Makefile                  ← migrações estilo Laravel (§3.3), testes, deps
@@ -308,6 +330,7 @@ Tudo pelo `Makefile` de `backend/` (a plataforma inteira) e pelo `Makefile` de c
 
 | Comando | O que faz |
 |---|---|
+| `make clone` · `make pull` | Clona os repositórios dos serviços que faltam em `backend/<serviço>/` · atualiza todos (`git pull --ff-only`) (§0) |
 | `make up` | Cria os `.env` que faltam a partir dos `.env.example`, instala as dependências do editor dos serviços que ainda não têm `node_modules` (como `make deps`), builda, sobe infra + serviços, espera ficarem saudáveis e roda `make migrate` em cada serviço |
 | `make watch` | O mesmo, em primeiro plano com Compose Watch (§3.1): alterar código não exige rebuild |
 | `make infra` | Sobe só a infra compartilhada (RabbitMQ, Redis, edge) |

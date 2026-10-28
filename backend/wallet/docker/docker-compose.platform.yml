@@ -1,5 +1,0 @@
-services:
-  wallet-worker:
-    depends_on:
-      rabbitmq:
-        condition: service_healthy

@@ -3,3 +3,10 @@ dist
 coverage
 
 .planning/
+
+# Each service is its own repository, cloned here by `make clone` (backend/repos.txt)
+/backend/account/
+/backend/wallet/
+/backend/order/
+/backend/matching/
+/backend/market-data/

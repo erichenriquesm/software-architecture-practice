@@ -1,6 +1,9 @@
 # Whole platform: shared infra (RabbitMQ, Redis, edge) + every service in backend/.
-# Each service also has its own Makefile for its migrations (backend/<service>/Makefile).
+# Each service lives in its own repository (repos.txt) and is cloned into backend/<service>/;
+# each one has its own Makefile for its migrations and tests.
 #
+#   make clone              clone the service repositories that are not in backend/ yet
+#   make pull               update every cloned service (git pull --ff-only)
 #   make up                 create missing .env files and editor dependencies, build and start everything, then migrate every service
 #   make watch              same, in the foreground with Compose Watch (code changes without rebuild)
 #   make infra              start only the shared infra
@@ -17,7 +20,17 @@ COMPOSE = docker compose -f docker-compose.yml
 SERVICES = $(patsubst %/Makefile,%,$(wildcard */Makefile))
 ENV_EXAMPLES = $(wildcard infra/.env.example */.env.example */.env.test.example)
 
-.PHONY: up watch infra migrate ps logs down check env deps deps-missing test
+.PHONY: clone pull up watch infra migrate ps logs down check env deps deps-missing test
+
+clone:
+	@grep -v '^#' repos.txt | while read -r folder url; do \
+	  if [ -d "$$folder/.git" ]; then echo "$$folder: already cloned"; else git clone --quiet "$$url" "$$folder" && echo "$$folder: cloned"; fi; \
+	done
+
+pull:
+	@grep -v '^#' repos.txt | while read -r folder url; do \
+	  if [ -d "$$folder/.git" ]; then echo "== $$folder"; git -C "$$folder" pull --ff-only || exit 1; fi; \
+	done
 
 env:
 	@for example in $(ENV_EXAMPLES); do \
@@ -69,7 +82,7 @@ logs:
 down:
 	$(COMPOSE) down
 
-ROOT_ENTRIES = .git .claude .planning .DS_Store .gitignore backend frontend sdd
+ROOT_ENTRIES = .git .claude .planning .DS_Store .gitignore README.md backend frontend sdd
 
 check:
 	docker run --rm -v "$(CURDIR)":/backend -w /backend node:26-alpine npx --yes tsx scripts/check-contracts.ts .

@@ -423,7 +423,7 @@ Ao receber `SIGTERM`: parar de consumir, terminar a mensagem em andamento, dar `
 
 ## 6. Código compartilhado (não há)
 
-**Nenhum código é compartilhado entre serviços.** Cada `backend/<svc>/` é um projeto standalone e precisa poder virar um repositório próprio só copiando a pasta.
+**Nenhum código é compartilhado entre serviços.** Cada serviço é um **repositório próprio** ([ambiente §0](04-ambiente-docker.md#0-reposit%C3%B3rios-e-layout-da-raiz)), clonado em `backend/<svc>/` pelo `make clone` do repositório guarda-chuva.
 
 | O quê | Onde fica | Como chega a um serviço novo |
 |---|---|---|
@@ -455,7 +455,7 @@ backend/account/src/infra/contracts/
 - **Quem publica um evento ou expõe um `.proto` é o dono** e guarda o original em `infra/contracts/published/`.
 - **Quem consome guarda uma cópia** em `infra/contracts/consumed/`, e é contra ela que roda os testes de contrato.
 - O código TypeScript do gRPC é gerado **dentro de cada serviço** (`ts-proto`), a partir do `.proto` que ele tem (o próprio, se for servidor; a cópia, se for cliente).
-- **`scripts/check-contracts`** (container) compara cada cópia com o original do dono e falha se divergirem. Hoje, com tudo no mesmo repositório, isso basta; quando os serviços virarem repositórios separados, a cópia passa a vir de um registro de contratos, e a regra continua a mesma.
+- **`scripts/check-contracts`** (container) compara cada cópia com o original do dono e falha se divergirem. Com os serviços em repositórios separados, ele roda no guarda-chuva sobre os clones (`make check`): mudar um contrato exige atualizar o original no dono e as cópias nos consumidores, cada um no seu repositório. Um registro de contratos (de onde cada consumidor puxaria a cópia) fica como evolução, e a regra continua a mesma.
 - O envelope e o `markets.json` não têm um serviço dono: o original fica em `backend/infra/contracts/`, e cada serviço guarda uma cópia, verificada pelo mesmo script.
 - A evolução segue a regra da [mensageria §2](03-mensageria.md#2-envelope): mudança compatível mantém a versão; incompatível cria `v2`, e o produtor publica as duas até os consumidores migrarem.
 
