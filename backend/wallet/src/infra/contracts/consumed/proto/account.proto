@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package trading.account.v1;
+
+service AccountService {
+  rpc Exists(ExistsRequest) returns (ExistsResponse);
+}
+
+message ExistsRequest {
+  string account_id = 1;
+}
+
+message ExistsResponse {
+  bool exists = 1;
+}

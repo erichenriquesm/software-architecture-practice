@@ -6,3 +6,7 @@ include:
       - account/docker/docker-compose.yml
       - account/docker/docker-compose.platform.yml
     env_file: account/.env
+  - path:
+      - wallet/docker/docker-compose.yml
+      - wallet/docker/docker-compose.platform.yml
+    env_file: wallet/.env

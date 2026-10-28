@@ -1,0 +1,53 @@
+name: wallet-test
+
+services:
+  tests:
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
+    command: ["npm", "run", "test:integration"]
+    env_file: ../.env.test
+    depends_on:
+      wallet-db-test:
+        condition: service_healthy
+      wallet-rabbitmq-test:
+        condition: service_healthy
+      wallet-redis-test:
+        condition: service_healthy
+    networks: [wallet-test-net]
+
+  wallet-db-test:
+    image: postgres:17-alpine
+    env_file: ../.env.test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [wallet-test-net]
+
+  wallet-rabbitmq-test:
+    image: rabbitmq:4-management-alpine
+    env_file: ../.env.test
+    tmpfs: [/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 10s
+      retries: 40
+    networks: [wallet-test-net]
+
+  wallet-redis-test:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [wallet-test-net]
+
+networks:
+  wallet-test-net:
+    name: wallet-test-net
+    driver: bridge
+    internal: true

@@ -1,0 +1,78 @@
+x-watch: &watch
+  watch:
+    - action: sync
+      path: ../src
+      target: /app/src
+      ignore: [infra/generated/, infra/contracts/]
+    - action: sync+restart
+      path: ../src/infra/contracts
+      target: /app/src/infra/contracts
+    - action: rebuild
+      path: ../package.json
+    - action: rebuild
+      path: ../package-lock.json
+    - action: rebuild
+      path: ./Dockerfile
+
+services:
+  wallet-db:
+    image: postgres:17-alpine
+    container_name: wallet-db
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - wallet-db-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [trading-net]
+
+  wallet-api:
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
+    container_name: wallet-api
+    command: ["sh", "-c", "npm run proto:gen && npx tsx watch src/infra/api.ts"]
+    env_file: ../.env
+    ports:
+      - "127.0.0.1:3002:3000"
+      - "127.0.0.1:50052:50051"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      wallet-db:
+        condition: service_healthy
+    networks: [trading-net]
+    develop: *watch
+
+  wallet-worker:
+    build: { context: .., dockerfile: docker/Dockerfile, target: dev }
+    container_name: wallet-worker
+    command: ["npx", "tsx", "watch", "src/infra/worker.ts"]
+    env_file: ../.env
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      wallet-db:
+        condition: service_healthy
+    networks: [trading-net]
+    develop: *watch
+
+networks:
+  trading-net:
+    name: trading-net
+    driver: bridge
+
+volumes:
+  wallet-db-data:
+    name: wallet-db-data

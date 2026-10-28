@@ -129,11 +129,11 @@ Quem chama se identifica com nome + token no metadata. Allowlist: `GetBalances` 
 
 "A conta existe?", usado por `Deposit`, `Withdraw` e `ReserveFunds`:
 
-1. `LocalWalletLookup` — a carteira existe localmente? Pronto.
-2. `AccountGrpcGateway` + `AccountAcl` — `AccountService.Exists`, deadline 500 ms, retry 3× com backoff + jitter. Se existir, o caso de uso abre a carteira na hora com `Wallet.open` (cobre a janela antes de `account.created` chegar). O adapter só responde se a conta existe; quem abre é o domínio.
-3. Fim da corrente → `AccountNotFoundError`.
+1. A carteira existe localmente (`WalletRepository`)? Pronto.
+2. Senão, `GrpcAccountGateway` + `accountAcl` — `AccountService.Exists`, deadline 500 ms, retry 3× com backoff + jitter. Se existir, o caso de uso abre a carteira na hora com `Wallet.open` (cobre a janela antes de `account.created` chegar). O adapter só responde se a conta existe; quem abre é o domínio.
+3. Conta inexistente → `WalletNotFoundError` (`404` no HTTP; evento `WALLET_NOT_FOUND` no `ReserveFunds`).
 
-Se o gRPC estiver fora depois das tentativas: no HTTP, `503`; no consumidor, erro transitório → fila de retry (a ordem fica em `pending` até resolver).
+Os passos 1 e 3 ficam no `WalletStore.loadOrOpen` (aplicação); o passo 2 é o adapter. Se o gRPC estiver fora depois das tentativas, o adapter lança `AccountServiceUnavailableError`: no HTTP, `503`; no consumidor, erro transitório → fila de retry (a ordem fica em `pending` até resolver).
 
 ## 8. Mensageria
 
@@ -209,14 +209,15 @@ backend/wallet/
   package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
   src/
     domain/
-      entities/                     wallet.ts  reservation.ts  aggregateRoot.ts
+      entities/                     wallet.ts  reservation.ts  ledgerEntry.ts  aggregateRoot.ts
       valueObjects/                 accountId.ts  orderId.ts  assetId.ts  quantity.ts  price.ts  side.ts  marketId.ts  balance.ts
       domainEvents/                 domainEvent.ts  fundsReserved.ts  fundsReservationRejected.ts  balanceChanged.ts
       domainServices/               (vazio por enquanto: toda regra cabe no agregado Wallet)
       errors.ts
     application/
       usecases/                     openWallet.ts  deposit.ts  withdraw.ts  reserveFunds.ts  settleTradeSide.ts
-                                    releaseReservation.ts  compensateReservation.ts  getBalances.ts  useCase.ts  retryOnConflict.ts
+                                    releaseReservation.ts  compensateReservation.ts  getBalances.ts
+                                    useCase.ts  retryOnConflict.ts  walletStore.ts (carregar/abrir e salvar+despachar, comum aos comandos)
       dtos/                         fundsMovement.ts  reserveFundsDto.ts  settleTradeSideDto.ts  releaseReservationDto.ts  walletBalancesView.ts
       contracts/                    walletRepository.ts  voidedOrders.ts  balanceDao.ts  accountGateway.ts  marketCatalog.ts
                                     transactionRunner.ts  domainEventDispatcher.ts  clock.ts
@@ -224,10 +225,11 @@ backend/wallet/
       http/                         walletRoutes.ts (deposit, withdraw, rate limit)  health.ts
       grpc/
         walletGrpcServer.ts         servidor do GetBalances, com o interceptor de nome + token
-        account/                    grpcAccountGateway.ts  accountAcl.ts  accountExistenceChain.ts
+        account/                    grpcAccountGateway.ts  accountAcl.ts
       messaging/
         consumers/                  accountCreatedConsumer.ts  orderPlacedConsumer.ts  tradeExecutedConsumer.ts
                                     orderRemovedConsumer.ts  orderVoidedConsumer.ts
+                                    consumedEvent.ts (ACL de entrada: tipo, versão e schema; classificação de erro)
         walletIntegrationEvents.ts  domain event → outbox
       database/                     kyselyWalletRepository.ts  kyselyVoidedOrders.ts  kyselyBalanceDao.ts
                                     kyselyTransactionRunner.ts  postgres.ts  database.ts  migrator.ts  migrationFiles.ts
