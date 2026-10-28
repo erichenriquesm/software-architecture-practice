@@ -11,5 +11,6 @@ coverage
 /backend/matching/
 /backend/market-data/
 
-# The web client is its own repository, cloned here (sdd/09-frontend.md)
-/frontend/
+# The web client is its own repository, cloned into frontend/ by `make clone` (sdd/09-frontend.md); only the placeholder is tracked here
+/frontend/*
+!/frontend/.gitkeep

@@ -24,9 +24,12 @@ ENV_EXAMPLES = $(wildcard infra/.env.example */.env.example */.env.test.example)
 
 .PHONY: clone pull up watch infra migrate ps logs down check env deps deps-missing test e2e projections-rebuild
 
+# A folder may already exist with only a placeholder (frontend/.gitkeep): the repository is initialised inside it.
 clone:
 	@grep -v '^#' repos.txt | while read -r folder url; do \
-	  if [ -d "$$folder/.git" ]; then echo "$$folder: already cloned"; else git clone --quiet "$$url" "$$folder" && echo "$$folder: cloned"; fi; \
+	  if [ -d "$$folder/.git" ]; then echo "$$folder: already cloned"; continue; fi; \
+	  mkdir -p "$$folder" && git -C "$$folder" init --quiet && git -C "$$folder" remote add origin "$$url" && \
+	  git -C "$$folder" fetch --quiet origin && git -C "$$folder" checkout --quiet -t origin/main && echo "$$folder: cloned"; \
 	done
 
 pull:
