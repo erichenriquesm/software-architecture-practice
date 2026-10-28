@@ -50,9 +50,9 @@ backend/
     rabbitmq/                 ← definitions.template.json + entrypoint.sh (gera o definitions.json com as senhas do .env)
     redis/entrypoint.sh       ← gera o users.acl com as senhas do .env
     edge/nginx.conf           ← roteamento REST público → serviços
-    contracts/                ← originais sem dono: envelope.schema.json, markets.json (+ schema)
+    schemas/                  ← originais sem dono: envelope.schema.json, markets.json (+ schema)
   scripts/                    ← só biblioteca padrão do Node, rodados em container
-    check-contracts.ts        ← compara cada cópia de contrato com o original do dono
+    check-schemas.ts        ← compara cada cópia de contrato com o original do dono
   account/                    ← clone do repositório do serviço (make clone); projeto STANDALONE
     package.json  package-lock.json
     tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
@@ -66,12 +66,12 @@ backend/
       docker-compose.platform.yml ← só a ligação com a plataforma (ex.: o worker espera o rabbitmq)
       docker-compose.test.yml ← testes de integração com infra efêmera e rede isolada
     src/
-      domain/                 ← entities/, valueObjects/, events/, services/
+      domain/                 ← entities/, valueObjects/, events/ (e services/ quando houver)
       application/            ← usecases/, dtos/, contracts/
       infra/
         http/ grpc/ messaging/ database/
         platform/             ← RNF escritos no serviço: resilience/, messaging/, http/, security/
-        contracts/            ← published/ (dono) e consumed/ (cópias), envelope, markets.json
+        schemas/              ← published/ (dono) e consumed/ (cópias), envelope, markets.json
         database/migrations/  ← migrações estilo Laravel (up/down)
         api.ts  worker.ts  migrate.ts
     test/                     ← unit/ e integration/ (espelham src/), fakes/, support/
@@ -246,10 +246,10 @@ services:
           path: ../src
           target: /app/src
           ignore:
-            - infra/contracts/
-        - action: sync+restart          # contracts: restart regenerates the gRPC code
-          path: ../src/infra/contracts
-          target: /app/src/infra/contracts
+            - infra/schemas/
+        - action: sync+restart          # schemas: restart regenerates the gRPC code
+          path: ../src/infra/schemas
+          target: /app/src/infra/schemas
         - action: rebuild               # dependencies changed
           path: ../package.json
         - action: rebuild
@@ -265,7 +265,7 @@ O `wallet-worker` tem o mesmo bloco `develop.watch`, com `command` apontando par
 | Alteração | Precisa rebuild? | O que acontece |
 |---|---|---|
 | Código do serviço (`src/`) | **Não** | `sync` → `tsx watch` reinicia em ~1 s |
-| `src/infra/contracts/` do serviço (inclusive `.proto`) | **Não** | `sync+restart` → o comando regenera o código do gRPC e sobe |
+| `src/infra/schemas/` do serviço (inclusive `.proto`) | **Não** | `sync+restart` → o comando regenera o código do gRPC e sobe |
 | Nova migração | **Não** | `make migration name=...` cria o arquivo e `make migrate` aplica (§3.3) |
 | Variável de ambiente no compose | **Não** | `docker compose up -d` recria só o container, com a mesma imagem |
 | Teste | **Não** | `docker compose exec wallet-api npx vitest` (modo watch) |
@@ -351,7 +351,7 @@ Multi-stage, com testes de unidade dentro do build:
 
 1. **deps** — `npm ci` com devDependencies, a partir do `package.json` e do `package-lock.json` **do serviço**. O contexto de build é só a pasta do serviço: nada de fora dela entra na imagem.
 2. **dev** — `deps` + código-fonte + `tsx`. É o alvo do `docker/docker-compose.yml` (só local): o código é atualizado pelo Compose Watch, sem rebuild (§3.1). Roda como **root**, porque gera arquivos (código do protobuf, arquivos temporários do Vitest) em diretórios criados pela camada `deps`. Só a imagem final é não-root.
-3. **build** — gera o código do gRPC (`src/infra/generated/`) a partir dos `.proto` de `src/infra/contracts/`, compila e **roda os testes de unidade**. Teste vermelho = imagem não é gerada.
+3. **build** — gera o código do gRPC (`src/infra/generated/`) a partir dos `.proto` de `src/infra/schemas/`, compila e **roda os testes de unidade**. Teste vermelho = imagem não é gerada.
 4. **runtime** — `node:26-alpine`, só dependências de produção e `dist/`. Usuário não-root (`node`, uid 1000). É a imagem de produção (§3.2, §6).
 
 Testes de integração **não** rodam no build, porque precisam de Postgres/RabbitMQ. Eles rodam no `docker/docker-compose.test.yml` (ver [testes](05-estrategia-de-testes.md#5-como-rodar)).

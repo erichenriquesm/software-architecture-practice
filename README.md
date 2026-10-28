@@ -40,5 +40,5 @@ A API pública fica em `http://127.0.0.1:8080` (edge). O painel do RabbitMQ fica
 |---|---|
 | [`sdd/`](sdd/README.md) | A especificação: princípios, design estratégico, mensageria, ambiente, testes, sagas, rate limiting, autenticação e a spec de cada serviço |
 | `backend/infra/` | RabbitMQ, Redis e o edge (nginx), mais os contratos sem dono (envelope e catálogo de mercados) |
-| `backend/scripts/` | `check-contracts.ts` |
+| `backend/scripts/` | `check-schemas.ts` |
 | `backend/Makefile`, `backend/docker-compose.yml`, `backend/repos.txt` | Comandos e compose da plataforma inteira, e a lista dos repositórios |

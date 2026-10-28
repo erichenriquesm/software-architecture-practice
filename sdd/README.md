@@ -38,21 +38,21 @@
 7. **Handlers comutativos** onde a ordem dos eventos não é garantida (liquidação × liberação de reserva; fill × cancelamento).
 8. **Repository** para estado de domínio, **DAO** para leitura, ambos com **Kysely** (query builder tipado, sem ORM) e migrações em SQL. **CQRS com tabelas de projeção**: nenhuma leitura pública espera outro serviço.
 9. **REST** na API pública, **gRPC** no síncrono interno, sempre com **Gateway + ACL** e só como fallback de projeção.
-10. **Ports & Adapters, com pastas simples:** `domain/` (`entities/`, `valueObjects/`, `events/`, `services/`), `application/` (`usecases/`, `dtos/`, `contracts/` com as interfaces) e `infra/` agrupada por tecnologia (`http/`, `grpc/`, `messaging/`, `database/`, `platform/`, `contracts/` com JSON Schema e `.proto`). Casos de uso só conhecem as interfaces.
+10. **Ports & Adapters, com pastas simples:** `domain/` (`entities/`, `valueObjects/`, `events/`, `services/`), `application/` (`usecases/`, `dtos/`, `contracts/` com as interfaces) e `infra/` agrupada por tecnologia (`http/`, `grpc/`, `messaging/`, `database/`, `platform/`, `schemas/` com JSON Schema e `.proto`). Casos de uso só conhecem as interfaces.
 11. **Fallback com Chain of Responsibility**, terminando sempre em degradação explícita ou erro claro.
 12. **Lacunas do objetivo resolvidas com padrões de mercado** ([99](99-decisoes.md)): filtros de tick/step/valor mínimo em vez de arredondamento, prevenção de self-trade, `Idempotency-Key` estilo Stripe, janela móvel de 24 h, rebuild de projeção republicado a partir do banco do produtor (o broker só transporta).
 13. **Rate limit por uso** em duas camadas (edge por IP, serviço por conta), com limites mais apertados em autenticação e bloqueio escalonado para quem insiste.
 14. **Convenções:** casos de uso com `XxxInput`/`XxxOutput`, camelCase, Object Calisthenics no domínio, comentários em inglês e só em último caso, e um caso de uso nunca chama outro (comunicação por evento também dentro do serviço).
 15. **Testes repetíveis:** tempo, id e aleatoriedade controlados, infraestrutura efêmera por worker, rede de teste isolada e **fake de rede** (gRPC/HTTP) para qualquer outro microserviço. Só o E2E sobe os serviços de verdade.
 16. **Autenticação entre serviços:** nome + token no metadata do gRPC, com allowlist por método; usuário próprio, com o mínimo de permissão, no RabbitMQ, no Postgres (um usuário por serviço, que migra e acessa os dados) e no Redis. Todas as credenciais de dev ficam no `.env.example` de cada compose. JWT só para a identidade do usuário, quando o login existir.
-17. **Serviços independentes, um repositório por serviço:** cada serviço vive no seu repositório (lockfile e Dockerfile próprios, nada de `../`); este repositório é o guarda-chuva e só aponta para eles (`make clone`, [ambiente §0](04-ambiente-docker.md#0-reposit%C3%B3rios-e-layout-da-raiz)). **Nenhum código é compartilhado**: os RNF (retry, outbox, rate limit, token gRPC…) ficam em `src/infra/platform/` de cada serviço, escritos à mão, sem gerador nem template (o próximo serviço copia do anterior e adapta), e os contratos têm dono (o produtor) e cópias nos consumidores, verificadas por `scripts/check-contracts`.
+17. **Serviços independentes, um repositório por serviço:** cada serviço vive no seu repositório (lockfile e Dockerfile próprios, nada de `../`); este repositório é o guarda-chuva e só aponta para eles (`make clone`, [ambiente §0](04-ambiente-docker.md#0-reposit%C3%B3rios-e-layout-da-raiz)). **Nenhum código é compartilhado**: os RNF (retry, outbox, rate limit, token gRPC…) ficam em `src/infra/platform/` de cada serviço, escritos à mão, sem gerador nem template (o próximo serviço copia do anterior e adapta), e os contratos têm dono (o produtor) e cópias nos consumidores, verificadas por `scripts/check-schemas`.
 18. **Tudo em Docker**: compose por backend, rede `bridge` única (`trading-net`) com DNS por nome, um `.env.example` por compose com os dados de dev, e desenvolvimento com Compose Watch (alterar código não exige rebuild).
 
 ## Roteiro (esboço para a fase de plano)
 
 | Fase | Entrega |
 |---|---|
-| 0 | Fundação: **apagar o experimento da raiz** ([Q15](99-decisoes.md#q15)), raiz só com `backend/`, `frontend/` e `sdd/`; `backend/infra/` (RabbitMQ, Redis, edge, `trading-net`, contratos sem dono, `.env.example`); `scripts/check-contracts.ts` e `Makefile` da plataforma (`make up`, `make check`…) |
+| 0 | Fundação: **apagar o experimento da raiz** ([Q15](99-decisoes.md#q15)), raiz só com `backend/`, `frontend/` e `sdd/`; `backend/infra/` (RabbitMQ, Redis, edge, `trading-net`, contratos sem dono, `.env.example`); `scripts/check-schemas.ts` e `Makefile` da plataforma (`make up`, `make check`…) |
 | 1 | `account`, escrito do zero, inclusive `src/infra/platform/`, `test/support/` e o teste de arquitetura |
 | 2 | `wallet` (copia do `account` o que precisar e adapta) |
 | 3 | `order` |

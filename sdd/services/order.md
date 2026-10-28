@@ -21,7 +21,7 @@ HTTP de escrita (criar/cancelar) e de leitura (histórico), mais uma máquina de
 
 | Value Object | Regra |
 |---|---|
-| `MarketId` | Formato `BASE-QUOTE` e presente no catálogo `src/infra/contracts/markets.json` (cópia do original da infra) ([Q5](../99-decisoes.md#q5)) |
+| `MarketId` | Formato `BASE-QUOTE` e presente no catálogo `src/infra/schemas/markets.json` (cópia do original da infra) ([Q5](../99-decisoes.md#q5)) |
 | `Side` | `buy` \| `sell` |
 | `Quantity`, `Price` | `> 0`, decimal, escala 8 |
 | `MarketFilters` | Do catálogo. **Preço múltiplo do tick** (`0.01`), **quantidade múltipla do step** (`0.00001`), **`qty × price ≥ minNotional`** (`5 USD`). Fora do filtro → rejeita, nunca arredonda ([Q11](../99-decisoes.md#q11)). |
@@ -180,7 +180,6 @@ backend/order/
       entities/                     order.ts  aggregateRoot.ts
       valueObjects/                 orderId.ts  accountId.ts  marketId.ts  side.ts  quantity.ts  price.ts  marketFilters.ts  orderStatus.ts
       events/                       domainEvent.ts  orderPlaced.ts  orderAccepted.ts  orderCancelRequested.ts  orderVoided.ts
-      services/                     (vazio por enquanto: toda regra cabe no agregado Order)
       errors.ts
     application/
       usecases/                     placeOrder.ts  cancelOrder.ts  acceptOrder.ts  rejectOrder.ts  expireOrder.ts  applyFill.ts
@@ -200,7 +199,7 @@ backend/order/
         migrations/                 outbox, inbox, idempotency_key, order, order_view
       catalog/jsonMarketCatalog.ts  lê e valida o markets.json na subida
       platform/                     copiados do wallet (inclui Consumer com partes e reconexão ao RabbitMQ); sem gRPC
-      contracts/
+      schemas/
         published/events/           order.placed.v1  order.accepted.v1  order.cancelRequested.v1  order.voided.v1
         consumed/events/            wallet.fundsReserved.v1  wallet.fundsReservationRejected.v1
                                     matching.tradeExecuted.v1  matching.orderRemoved.v1  matching.orderCancelRejected.v1

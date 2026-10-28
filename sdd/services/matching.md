@@ -154,7 +154,6 @@ backend/matching/
       entities/                     orderBook.ts  bookEntry.ts  bookSide.ts (bids e asks: a ordenação preço-tempo)  aggregateRoot.ts
       valueObjects/                 trade.ts  orderId.ts  accountId.ts  marketId.ts  side.ts  quantity.ts  price.ts
       events/                       domainEvent.ts  tradeExecuted.ts  orderRemoved.ts  orderCancelRejected.ts  bookChanged.ts
-      services/                     (vazio por enquanto: toda regra cabe no agregado OrderBook)
       errors.ts
     application/
       usecases/                     executeOrder.ts  removeOrder.ts  useCase.ts  bookStore.ts (carregar e salvar+despachar)
@@ -171,7 +170,7 @@ backend/matching/
         migrations/                 outbox, inbox, book, book_entry, trade
       catalog/jsonMarketCatalog.ts  mercados ativos do markets.json
       platform/                     copiados do order, sem http/ (não há rotas públicas) e sem security/ (não há gRPC)
-      contracts/
+      schemas/
         published/events/           matching.tradeExecuted.v1  matching.orderRemoved.v1  matching.orderCancelRejected.v1  matching.bookSnapshot.v1
                                     matching.replayCompleted.v1
         consumed/events/            order.accepted.v1  order.cancelRequested.v1

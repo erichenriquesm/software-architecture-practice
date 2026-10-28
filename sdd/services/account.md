@@ -122,7 +122,6 @@ backend/account/
       entities/                     account.ts  aggregateRoot.ts
       valueObjects/                 accountId.ts  fullName.ts  email.ts  cpf.ts  password.ts  passwordHash.ts
       events/                       domainEvent.ts  accountCreated.ts
-      services/                     (vazio por enquanto: nenhuma regra envolve mais de uma entidade)
       errors.ts
     application/
       usecases/                     signup.ts  getAccount.ts  projectWalletBalance.ts  accountExists.ts  useCase.ts
@@ -142,7 +141,7 @@ backend/account/
         migrations/                 2026_10_28_000001_create_outbox_table.ts … 000005_create_account_balance_view_table.ts
       crypto/argon2PasswordHasher.ts
       platform/                     config/  events/  http/  messaging/  observability/  resilience/  security/
-      contracts/
+      schemas/
         published/events/account.created.v1.schema.json
         published/proto/account.proto
         consumed/events/wallet.balanceChanged.v1.schema.json

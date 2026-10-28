@@ -17,7 +17,7 @@ Cada serviço tem três camadas:
       entities/            agregados e entidades (Account, Wallet, Order, OrderBook)
       valueObjects/        Email, Cpf, Quantity, Price…
       events/              domain events: fatos no passado (AccountCreated, OrderAccepted…)
-      services/            domain services: regra que envolve mais de uma entidade e não pertence a nenhuma
+      services/            domain services: regra que envolve mais de uma entidade (só quando existir uma)
       errors.ts            erros de domínio
     application/           ← casos de uso: orquestram domínio + contratos.
       usecases/            um arquivo por caso de uso (signup.ts, getAccount.ts)
@@ -31,7 +31,7 @@ Cada serviço tem três camadas:
       database/            repositories, DAOs, projection writers, transaction runner, tipos do banco
       scheduler/           jobs agendados (só onde existir)
       platform/            base técnica: retry, inbox, rate limit, idempotência, token gRPC
-      contracts/           JSON Schema dos eventos e .proto (published/ e consumed/), envelope, markets.json
+      schemas/             JSON Schema dos eventos e .proto (published/ e consumed/), envelope, markets.json
       generated/           código gerado do .proto (não versionado)
       database/migrations/ migrações estilo Laravel: classes com up() e down() (§9)
       api.ts  worker.ts  migrate.ts   ← composition root
@@ -44,7 +44,11 @@ Cada serviço tem três camadas:
 
 Dentro de `domain/` as pastas não repetem o prefixo: o caminho já diz que são do domínio. O nome do tipo continua completo (`DomainEvent`, `DomainEventDispatcher`), porque fora da pasta ele precisa se distinguir do evento de integração (`Envelope`).
 
-Dois `contracts/` com papéis diferentes: `application/contracts/` são **interfaces TypeScript** (o que o caso de uso precisa); `infra/contracts/` são **formatos de transporte** (JSON Schema e `.proto`), que só a `infra` lê.
+**Pasta nasce com o primeiro arquivo.** Não existe pasta vazia "para quando precisar" (nem `.gitkeep`): quem abre o serviço só vê o que existe.
+
+**README de cada serviço abre com "Comece por aqui":** o caminho de uma requisição (ou de um evento) de ponta a ponta, arquivo por arquivo, para quem chega ter o mapa antes de abrir as pastas.
+
+`application/contracts/` são **interfaces TypeScript** (o que o caso de uso precisa); `infra/schemas/` são **formatos de transporte** (JSON Schema e `.proto`), que só a `infra` lê.
 
 **Regra de dependência:** `infra → application → domain`. Nunca o contrário.
 Verificação automática: teste de arquitetura (ex.: `dependency-cruiser`) roda no pipeline e falha se `domain` importar `application`/`infra`, ou `application` importar `infra`.
@@ -154,7 +158,7 @@ O modelo é **rico onde há invariante** e **simples onde não há**. Rico demai
 Regras:
 1. **Agregado é fronteira de consistência:** uma transação altera **um** agregado. Mais de um → evento.
 2. **Value Objects para tudo que tem regra ou unidade:** `Quantity`, `Price`, `Money`, `AssetId`, `MarketId`, `Side`. Nada de `number` solto no domínio.
-3. **Dinheiro e quantidade nunca em `float`.** Usar biblioteca decimal (ex.: `decimal.js`) no domínio e `numeric(36,8)` no Postgres, escala interna 8 para todos os ativos. **Não arredondar, validar:** preço e quantidade fora dos filtros do mercado (tick, step, valor mínimo, em `infra/contracts/markets.json`, lidos pela porta `MarketCatalog`) são rejeitados. Assim toda conta é exata (ver [Q11](99-decisoes.md#q11)).
+3. **Dinheiro e quantidade nunca em `float`.** Usar biblioteca decimal (ex.: `decimal.js`) no domínio e `numeric(36,8)` no Postgres, escala interna 8 para todos os ativos. **Não arredondar, validar:** preço e quantidade fora dos filtros do mercado (tick, step, valor mínimo, em `infra/schemas/markets.json`, lidos pela porta `MarketCatalog`) são rejeitados. Assim toda conta é exata (ver [Q11](99-decisoes.md#q11)).
 4. **Erros de domínio são classes** (`InsufficientFundsError`, `InvalidOrderTransitionError`), não `new Error('string')`. A `infra` traduz para HTTP status / evento de rejeição.
 5. **Rejeição de negócio não é exceção de infraestrutura.** "Saldo insuficiente" num consumidor vira evento (`wallet.fundsReservationRejected`), não retry.
 6. **Domain events** são emitidos pelo agregado e gravados no **outbox** na mesma transação ([mensageria](03-mensageria.md#5-outbox-e-inbox)).
@@ -169,7 +173,7 @@ Event-driven não vale só entre serviços: vale **dentro** do serviço. Se o ca
 | | Evento de domínio | Evento de integração |
 |---|---|---|
 | Nome | Classe no passado: `OrderAccepted`, `FundsReserved` | Tipo do contrato: `order.accepted`, `wallet.fundsReserved` |
-| Onde vive | `domain/events/` do serviço | `infra/contracts/published/events/` do serviço produtor; cópias em `infra/contracts/consumed/` dos consumidores (Published Language, §6) |
+| Onde vive | `domain/events/` do serviço | `infra/schemas/published/events/` do serviço produtor; cópias em `infra/schemas/consumed/` dos consumidores (Published Language, §6) |
 | Conteúdo | Pode carregar VOs e detalhes internos | Só primitivos e strings decimais, versionado |
 | Alcance | **Só dentro do serviço** | Outros serviços (e o próprio serviço, quando a reação é em outra transação) |
 | Quem converte | — | `IntegrationEventMapper`, adapter de saída da mensageria |
@@ -359,7 +363,7 @@ infra/grpc/wallet/walletAcl.ts           ← ACL: traduz o modelo DELES → o ME
 
 Decisão para esta plataforma:
 - **API pública: REST.** Exatamente os endpoints do objetivo, roteados pelo edge proxy.
-- **Síncrono interno: gRPC.** O `.proto` é do serviço que expõe o método (`infra/contracts/published/proto/`); quem chama guarda uma cópia (`infra/contracts/consumed/proto/`), verificada pelo `scripts/check-contracts` (§6). Cada serviço gera o próprio código TypeScript (`ts-proto`) a partir do `.proto` que tem. Só os adapters da `infra` importam o código gerado; a ACL traduz a mensagem gerada para os tipos do meu contexto.
+- **Síncrono interno: gRPC.** O `.proto` é do serviço que expõe o método (`infra/schemas/published/proto/`); quem chama guarda uma cópia (`infra/schemas/consumed/proto/`), verificada pelo `scripts/check-schemas` (§6). Cada serviço gera o próprio código TypeScript (`ts-proto`) a partir do `.proto` que tem. Só os adapters da `infra` importam o código gerado; a ACL traduz a mensagem gerada para os tipos do meu contexto.
 - **Assíncrono: RabbitMQ** (ver [mensageria](03-mensageria.md)). gRPC não substitui evento: se o chamador não precisa da resposta na hora, é evento.
 - **Health check e métricas: HTTP simples** (`/health`, `/metrics`), porque é o que o Docker e as ferramentas de observabilidade esperam.
 - **Fora do escopo:** gRPC no browser (gRPC-Web) e streaming. Se surgir depth em tempo real para o front, o caminho é WebSocket/SSE no `market-data`, não gRPC.
@@ -432,7 +436,7 @@ Ao receber `SIGTERM`: parar de consumir, terminar a mensagem em andamento, dar `
 | Domínio | `src/domain/` do serviço | Escrito pelo serviço. Nunca é compartilhado: `Quantity` de `wallet` e de `matching` são classes separadas |
 | **Requisitos não funcionais** (retry, timeout, `FallbackHandler`, outbox, inbox, consumer com retry/DLQ, rate limit, `Idempotency-Key`, token gRPC + allowlist) | **`src/infra/platform/`** do serviço: `resilience/`, `messaging/`, `http/`, `security/` | Escrito à mão quando o serviço é construído, só com o que ele usa. O primeiro serviço (`account`) escreve do zero; os seguintes podem copiar do anterior e adaptar |
 | Helpers de teste (bancos e broker efêmeros, CA de teste, fakes gRPC/HTTP, fixtures) | **`test/`** do serviço | Do mesmo jeito: escritos no serviço, copiados e adaptados quando outro precisar |
-| Contratos | `src/infra/contracts/` do serviço (ver abaixo) | O produtor é dono; o consumidor guarda cópia |
+| Contratos | `src/infra/schemas/` do serviço (ver abaixo) | O produtor é dono; o consumidor guarda cópia |
 | Regras de lint e de arquitetura | `eslint.config.mjs` e `.dependency-cruiser.cjs` do serviço | Escritas no serviço |
 
 **Regra de independência.** Um serviço:
@@ -445,7 +449,7 @@ Ao receber `SIGTERM`: parar de consumir, terminar a mensagem em andamento, dar `
 ### Contratos: o produtor é dono, o consumidor guarda cópia
 
 ```
-backend/account/src/infra/contracts/
+backend/account/src/infra/schemas/
   published/events/account.created.v1.schema.json      ← dono: account
   published/proto/account.proto                        ← dono: account (servidor gRPC)
   consumed/events/wallet.balanceChanged.v1.schema.json ← cópia do que account consome
@@ -454,11 +458,11 @@ backend/account/src/infra/contracts/
   markets.json                                         ← cópia do catálogo, se o serviço usa
 ```
 
-- **Quem publica um evento ou expõe um `.proto` é o dono** e guarda o original em `infra/contracts/published/`.
-- **Quem consome guarda uma cópia** em `infra/contracts/consumed/`, e é contra ela que roda os testes de contrato.
+- **Quem publica um evento ou expõe um `.proto` é o dono** e guarda o original em `infra/schemas/published/`.
+- **Quem consome guarda uma cópia** em `infra/schemas/consumed/`, e é contra ela que roda os testes de contrato.
 - O código TypeScript do gRPC é gerado **dentro de cada serviço** (`ts-proto`), a partir do `.proto` que ele tem (o próprio, se for servidor; a cópia, se for cliente).
-- **`scripts/check-contracts`** (container) compara cada cópia com o original do dono e falha se divergirem. Com os serviços em repositórios separados, ele roda no guarda-chuva sobre os clones (`make check`): mudar um contrato exige atualizar o original no dono e as cópias nos consumidores, cada um no seu repositório. Um registro de contratos (de onde cada consumidor puxaria a cópia) fica como evolução, e a regra continua a mesma.
-- O envelope e o `markets.json` não têm um serviço dono: o original fica em `backend/infra/contracts/`, e cada serviço guarda uma cópia, verificada pelo mesmo script.
+- **`scripts/check-schemas`** (container) compara cada cópia com o original do dono e falha se divergirem. Com os serviços em repositórios separados, ele roda no guarda-chuva sobre os clones (`make check`): mudar um contrato exige atualizar o original no dono e as cópias nos consumidores, cada um no seu repositório. Um registro de contratos (de onde cada consumidor puxaria a cópia) fica como evolução, e a regra continua a mesma.
+- O envelope e o `markets.json` não têm um serviço dono: o original fica em `backend/infra/schemas/`, e cada serviço guarda uma cópia, verificada pelo mesmo script.
 - A evolução segue a regra da [mensageria §2](03-mensageria.md#2-envelope): mudança compatível mantém a versão; incompatível cria `v2`, e o produtor publica as duas até os consumidores migrarem.
 
 ---
@@ -484,7 +488,7 @@ Pirâmide: regra específica é testada no nível mais baixo possível. Detalhes
 |---|---|---|
 | Linguagem | TypeScript (strict) **fixado em `~6.0.3`**, Node 26 | Um ecossistema só para serviços, scripts e testes. A versão é fixada porque `typescript-eslint`, `dependency-cruiser` e `kysely-codegen` ainda exigem TypeScript < 6.1 |
 | HTTP (API pública) | Fastify | Leve, schema de validação nativo |
-| RPC interno | `@grpc/grpc-js` + `ts-proto` | Contrato tipado gerado, em cada serviço, a partir do `.proto` que ele tem em `infra/contracts/` |
+| RPC interno | `@grpc/grpc-js` + `ts-proto` | Contrato tipado gerado, em cada serviço, a partir do `.proto` que ele tem em `infra/schemas/` |
 | Acesso ao Postgres | **Kysely** (query builder tipado) sobre o driver `pg` | Não é ORM: o domínio não ganha decorators nem classes de entidade, e o Repository mapeia linha ↔ agregado à mão. Cobre o que a spec exige: `FOR UPDATE SKIP LOCKED` (relay do outbox), `ON CONFLICT` (projeções), transação explícita, `GROUP BY` e agregações tipadas nos DAOs, e `sql` para o que faltar (ex.: `pg_advisory_lock`) |
 | Tipos do banco | `kysely-codegen`, gerado do banco já migrado e versionado em `infra/database/database.ts` | O tipo vem do schema real, não de uma cópia escrita à mão |
 | `numeric` | Lido como **string** e convertido para `decimal.js` no mapeamento | Nunca passa por `number`: não perde casas |
@@ -492,4 +496,4 @@ Pirâmide: regra específica é testada no nível mais baixo possível. Detalhes
 | RabbitMQ | `amqplib` encapsulado em `src/infra/platform/messaging/` | |
 | Decimal | `decimal.js` | Dinheiro sem erro de ponto flutuante |
 | Testes | Vitest | Já usado no projeto |
-| Validação de borda | JSON Schema (o mesmo de `infra/contracts/`) | Uma fonte da verdade para contrato |
+| Validação de borda | JSON Schema (o mesmo de `infra/schemas/`) | Uma fonte da verdade para contrato |

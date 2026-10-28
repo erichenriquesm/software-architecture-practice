@@ -123,7 +123,7 @@ O worker declara, na subida, a fila `marketData.replay` (quorum, durável) ligad
 2. `matching`: `npm run history:republish` publica todos os trades, o snapshot atual de cada livro e o marcador `matching.replayCompleted` (routing `matching.replay.*`);
 3. `market-data`: `npm run projections:rebuild` faz o `truncate` de `trade_view`, `candle_1m_view`, `book_state_view` e `depth_view` numa transação, consome `marketData.replay` aplicando cada evento nos mesmos projetores, **sem inbox**, e termina ao receber o `replayCompleted`. Se nada chegar por `REBUILD_TIMEOUT` (padrão `60s`), falha com erro claro (o republish não rodou).
 
-O schema do marcador fica em `src/infra/contracts/consumed/events/matching.replayCompleted.v1.schema.json`. O `Makefile` do serviço tem `projections-rebuild-prepare` e `projections-rebuild` para rodar os passos 1 e 3 sozinhos.
+O schema do marcador fica em `src/infra/schemas/consumed/events/matching.replayCompleted.v1.schema.json`. O `Makefile` do serviço tem `projections-rebuild-prepare` e `projections-rebuild` para rodar os passos 1 e 3 sozinhos.
 
 Os consumers normais podem continuar rodando durante o rebuild: o trade é gravado uma vez só (`trade_id`) e o snapshot é *last-write-wins*.
 
@@ -207,7 +207,7 @@ backend/market-data/
         migrations/                 inbox, trade_view, candle_1m_view, book_state_view, depth_view
       catalog/jsonMarketCatalog.ts  lê e valida o markets.json na subida; faixa de precision por mercado
       platform/                     copiados do order (Consumer com units, opção inbox: false, reconexão ao RabbitMQ, rate limit); sem gRPC, sem outbox, sem idempotência
-      contracts/
+      schemas/
         consumed/events/            matching.tradeExecuted.v1  matching.bookSnapshot.v1
         envelope.schema.json  markets.json  markets.schema.json
       composition.ts  settings.ts  system.ts

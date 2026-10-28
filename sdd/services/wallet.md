@@ -212,7 +212,6 @@ backend/wallet/
       entities/                     wallet.ts  reservation.ts  ledgerEntry.ts  aggregateRoot.ts
       valueObjects/                 accountId.ts  orderId.ts  assetId.ts  quantity.ts  price.ts  side.ts  marketId.ts  balance.ts
       events/                       domainEvent.ts  fundsReserved.ts  fundsReservationRejected.ts  balanceChanged.ts
-      services/                     (vazio por enquanto: toda regra cabe no agregado Wallet)
       errors.ts
     application/
       usecases/                     openWallet.ts  deposit.ts  withdraw.ts  reserveFunds.ts  settleTradeSide.ts
@@ -236,7 +235,7 @@ backend/wallet/
         migrations/                 <timestamp>_create_<tabela>_table.ts, uma por tabela de §9 + outbox, inbox, idempotency_key
       catalog/jsonMarketCatalog.ts  lê e valida o markets.json na subida
       platform/                     config/  events/  http/  messaging/  observability/  resilience/  security/   (copiados do account)
-      contracts/
+      schemas/
         published/events/           wallet.fundsReserved.v1  wallet.fundsReservationRejected.v1  wallet.balanceChanged.v1
         published/proto/wallet.proto
         consumed/events/            account.created.v1  order.placed.v1  order.voided.v1

@@ -60,7 +60,7 @@ Configuração padrão de fila: `durable`, `x-queue-type: quorum`, mensagens `pe
 
 ## 2. Envelope
 
-Toda mensagem tem o mesmo envelope (schema `envelope.schema.json`: original em `backend/infra/contracts/`, cópia em `src/infra/contracts/` de cada serviço):
+Toda mensagem tem o mesmo envelope (schema `envelope.schema.json`: original em `backend/infra/schemas/`, cópia em `src/infra/schemas/` de cada serviço):
 
 ```json
 {
