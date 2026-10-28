@@ -14,7 +14,12 @@
     "test:unit": "vitest run",
     "test:integration": "TEST_SUITE=integration vitest run",
     "check": "npm run proto:gen && npm run typecheck && npm run lint && npm run arch && npm run test:unit",
-    "db:types": "kysely-codegen --dialect postgres --out-file src/infra/database/database.ts"
+    "db:types": "kysely-codegen --dialect postgres --out-file src/infra/database/database.ts",
+    "migrate": "tsx src/infra/migrate.ts migrate",
+    "migrate:rollback": "tsx src/infra/migrate.ts rollback",
+    "migrate:status": "tsx src/infra/migrate.ts status",
+    "migrate:fresh": "tsx src/infra/migrate.ts fresh",
+    "make:migration": "tsx src/infra/migrate.ts make"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.16.0",

@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { GetAccount } from '../../application/usecases/getAccount.js';
-import type { GetAccountInput } from '../../application/dtos/getAccountDto.js';
 import type { Signup } from '../../application/usecases/signup.js';
 import type { SignupInput } from '../../application/dtos/signupDto.js';
 import { AccountNotFoundError, DuplicateEmailError, InvalidAccountDataError } from '../../domain/errors.js';
@@ -77,14 +76,14 @@ export const registerAccountRoutes = (app: FastifyInstance, useCases: AccountRou
   app.post('/signup', { schema: { body: signupBody } }, async (request, reply) => {
     const correlation = correlationOf(request);
     const signupInput = request.body as SignupInput;
-    const signupOutput = await withCorrelation(correlation, () => useCases.signup.execute(signupInput));
-    return reply.status(201).header('x-correlation-id', correlation.correlationId).send(signupOutput);
+    const accountId = await withCorrelation(correlation, () => useCases.signup.execute(signupInput));
+    return reply.status(201).header('x-correlation-id', correlation.correlationId).send({ accountId });
   });
 
   app.get('/accounts/:accountId', async (request, reply) => {
     const correlation = correlationOf(request);
-    const getAccountInput: GetAccountInput = { accountId: String(accountIdOf(request)) };
-    const getAccountOutput = await withCorrelation(correlation, () => useCases.getAccount.execute(getAccountInput));
+    const accountId = String(accountIdOf(request));
+    const getAccountOutput = await withCorrelation(correlation, () => useCases.getAccount.execute(accountId));
     return reply.header('x-correlation-id', correlation.correlationId).send(getAccountOutput);
   });
 };

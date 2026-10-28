@@ -1,9 +1,5 @@
 import type { BalancesStatus } from './balanceView.js';
 
-export interface GetAccountInput {
-  readonly accountId: string;
-}
-
 export interface AssetOutput {
   readonly assetId: string;
   readonly quantity: string;

@@ -4,8 +4,7 @@ const integration = process.env.TEST_SUITE === 'integration';
 
 export default defineConfig({
   test: {
-    include: integration ? ['src/**/*.int.spec.ts'] : ['src/**/*.spec.ts'],
-    exclude: ['node_modules/**', 'dist/**', ...(integration ? [] : ['src/**/*.int.spec.ts'])],
+    include: integration ? ['test/integration/**/*.spec.ts'] : ['test/unit/**/*.spec.ts'],
     passWithNoTests: true,
     fileParallelism: !integration,
     testTimeout: integration ? 60_000 : 5_000,

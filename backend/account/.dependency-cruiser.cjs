@@ -1,6 +1,5 @@
 const thirdParty = ['npm', 'npm-dev', 'npm-optional', 'npm-peer'];
 const allowedInCore = 'node_modules/decimal\\.js';
-const testFiles = '\\.spec\\.ts$';
 
 module.exports = {
   forbidden: [
@@ -13,7 +12,7 @@ module.exports = {
     {
       name: 'domain-has-no-third-party-dependencies',
       severity: 'error',
-      from: { path: '^src/domain', pathNot: testFiles },
+      from: { path: '^src/domain' },
       to: { dependencyTypes: thirdParty, pathNot: allowedInCore },
     },
     {
@@ -25,7 +24,7 @@ module.exports = {
     {
       name: 'application-depends-only-on-ports',
       severity: 'error',
-      from: { path: '^src/application', pathNot: testFiles },
+      from: { path: '^src/application' },
       to: { dependencyTypes: thirdParty, pathNot: allowedInCore },
     },
     {

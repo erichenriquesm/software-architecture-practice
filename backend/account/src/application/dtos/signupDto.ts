@@ -4,7 +4,3 @@ export interface SignupInput {
   readonly document: string;
   readonly password: string;
 }
-
-export interface SignupOutput {
-  readonly accountId: string;
-}

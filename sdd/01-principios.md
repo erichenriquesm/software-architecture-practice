@@ -21,7 +21,7 @@ Cada serviço tem três camadas:
       errors.ts            erros de domínio
     application/           ← casos de uso: orquestram domínio + contratos.
       usecases/            um arquivo por caso de uso (signup.ts, getAccount.ts)
-      dtos/                Input, Output e View de cada caso de uso (signupDto.ts)
+      dtos/                Input/Output com 3+ campos e Views (signupDto.ts)
       contracts/           interfaces que a infra implementa (repositories, DAOs, gateways, clock…)
       …                    o que mais for de aplicação (ex.: calculations/ no market-data)
     infra/                 ← tudo que fala com o mundo de fora. Implementa os contratos.
@@ -33,9 +33,13 @@ Cada serviço tem três camadas:
       platform/            base técnica: retry, inbox, rate limit, idempotência, token gRPC
       contracts/           JSON Schema dos eventos e .proto (published/ e consumed/), envelope, markets.json
       generated/           código gerado do .proto (não versionado)
+      database/migrations/ migrações estilo Laravel: classes com up() e down() (§9)
       api.ts  worker.ts  migrate.ts   ← composition root
-  migrations/              SQL versionado
-  test/                    helpers e fakes de teste
+  test/
+    unit/                  testes de unidade, espelhando src/
+    integration/           testes de integração, espelhando src/
+    fakes/                 um fake por contrato de application/contracts/
+    support/               banco e broker efêmeros, fakes de rede, fixtures
 ```
 
 Dois `contracts/` com papéis diferentes: `application/contracts/` são **interfaces TypeScript** (o que o caso de uso precisa); `infra/contracts/` são **formatos de transporte** (JSON Schema e `.proto`), que só a `infra` lê.
@@ -63,8 +67,8 @@ Os adapters ficam em `infra/`, **agrupados por tecnologia** (`http/`, `grpc/`, `
 
 | Adapter | Responsabilidade | O que **não** faz |
 |---|---|---|
-| Controller REST / handler gRPC | Valida o schema de entrada, monta o `<UseCase>Input`, chama o caso de uso, traduz erro de domínio em status | Regra de negócio |
-| Consumer de mensageria | Valida o envelope no schema do contrato, checa a inbox, traduz o payload (ACL de entrada) para o `<UseCase>Input`, classifica o erro (rejeição × transitório × permanente) para ack / retry / DLQ | Conhecer o agregado; decidir regra |
+| Controller REST / handler gRPC | Valida o schema de entrada, monta os parâmetros do caso de uso, chama o caso de uso, traduz erro de domínio em status | Regra de negócio |
+| Consumer de mensageria | Valida o envelope no schema do contrato, checa a inbox, traduz o payload (ACL de entrada) para os parâmetros do caso de uso, classifica o erro (rejeição × transitório × permanente) para ack / retry / DLQ | Conhecer o agregado; decidir regra |
 | Job agendado | Dispara o caso de uso no intervalo configurado | — |
 
 Regras:
@@ -254,8 +258,9 @@ Verificação automática no lint: `max-depth: 1` e `no-else-return` no `domain/
 | Variáveis, funções, métodos, campos, propriedades | camelCase | `fillQuantity`, `remainingQuantity`, `pullEvents()` |
 | Arquivos | camelCase | `placeOrder.ts`, `placeOrderDto.ts` |
 | Tipos, classes, interfaces | PascalCase (convenção do TypeScript para tipos) | `PlaceOrder`, `OrderRepository` |
-| **Entrada de caso de uso** | `<CasoDeUso>Input` | `PlaceOrderInput` |
-| **Saída de caso de uso** | `<CasoDeUso>Output` (sem retorno: `type DepositOutput = void`) | `PlaceOrderOutput` |
+| **Entrada de caso de uso** | Até 2 valores: parâmetros diretos (`execute(accountId)`). **3 ou mais: DTO** `<CasoDeUso>Input` | `PlaceOrderInput` |
+| **Saída de caso de uso** | Até 2 valores: retorno direto (`Promise<string>`, `Promise<boolean>`, `Promise<void>`). **3 ou mais: DTO** `<CasoDeUso>Output` | `GetAccountOutput` |
+| **Alias de DTO** | Proibido (`type XInput = Y`). Se o caso de uso recebe um tipo que já existe, usa esse tipo | `execute(change: BalanceChange)` |
 | **Variáveis com entrada e saída** | terminam em `Input` / `Output` | fora do caso de uso: `placeOrderInput`, `placeOrderOutput` · dentro: `input`, `output` |
 | Modelo de leitura do DAO | `<X>View` | `OrderView`, `DepthLevelView` |
 | Campos JSON (REST, eventos, gRPC via ts-proto) | camelCase | `{ "orderId": …, "fillPrice": … }` |
@@ -278,16 +283,18 @@ Um caso de uso é **um caso específico**: tem exatamente uma entrada e uma saí
 
 ```
 application/
-  usecases/placeOrder.ts    ← classe PlaceOrder implements UseCase<PlaceOrderInput, PlaceOrderOutput>
-  dtos/placeOrderDto.ts     ← PlaceOrderInput e PlaceOrderOutput
+  usecases/placeOrder.ts    ← classe PlaceOrder implements UseCase<[input: PlaceOrderInput], PlaceOrderOutput>
+  dtos/placeOrderDto.ts     ← PlaceOrderInput e PlaceOrderOutput (5 e 2+ campos: viram DTO)
 ```
 
+**DTO só com 3 campos ou mais.** Abaixo disso o caso de uso recebe e devolve os valores direto: `GetAccount.execute(accountId: string)`, `AccountExists.execute(accountId: string): Promise<boolean>`, `Signup.execute(input: SignupInput): Promise<string>`. Alias de tipo para DTO (`type XInput = Y`) não existe.
+
 ```ts
-export interface UseCase<TInput, TOutput> {
-  execute(input: TInput): Promise<TOutput>;
+export interface UseCase<TParameters extends readonly unknown[], TOutput> {
+  execute(...parameters: TParameters): Promise<TOutput>;
 }
 
-export class PlaceOrder implements UseCase<PlaceOrderInput, PlaceOrderOutput> {
+export class PlaceOrder implements UseCase<[input: PlaceOrderInput], PlaceOrderOutput> {
   constructor(
     private readonly orderRepository: OrderRepository,
     private readonly marketCatalog: MarketCatalog,
@@ -318,7 +325,7 @@ reply.status(202).send(placeOrderOutput);
 ```
 
 - O caso de uso **não conhece** o RabbitMQ, a `order_view` nem quem vai reagir ao `OrderPlaced`. Ele só despacha os eventos de domínio (§2.1).
-- Caso de uso de consulta segue o mesmo formato: `GetOrdersInput` → DAO → `GetOrdersOutput` (montado a partir de `OrderView[]`).
+- Caso de uso de consulta segue a mesma regra: `GetOrders.execute(accountId, status)` (2 valores, sem DTO) → DAO → `GetOrdersOutput` (montado a partir de `OrderView[]`).
 
 ---
 
@@ -479,7 +486,7 @@ Pirâmide: regra específica é testada no nível mais baixo possível. Detalhes
 | Acesso ao Postgres | **Kysely** (query builder tipado) sobre o driver `pg` | Não é ORM: o domínio não ganha decorators nem classes de entidade, e o Repository mapeia linha ↔ agregado à mão. Cobre o que a spec exige: `FOR UPDATE SKIP LOCKED` (relay do outbox), `ON CONFLICT` (projeções), transação explícita, `GROUP BY` e agregações tipadas nos DAOs, e `sql` para o que faltar (ex.: `pg_advisory_lock`) |
 | Tipos do banco | `kysely-codegen`, gerado do banco já migrado e versionado em `infra/database/database.ts` | O tipo vem do schema real, não de uma cópia escrita à mão |
 | `numeric` | Lido como **string** e convertido para `decimal.js` no mapeamento | Nunca passa por `number`: não perde casas |
-| Migrações | Arquivos **SQL** versionados (`migrations/0001_*.sql`), aplicados em ordem pelo container `migrate` com o `Migrator` do Kysely (`kysely/migration`). Todas as migrações pendentes rodam **numa única transação**: ou todas entram, ou nenhuma. Por isso não se usa `CREATE INDEX CONCURRENTLY` | SQL legível e auditável; o Kysely só controla o que já foi aplicado |
+| Migrações | **Estilo Laravel**: uma classe por arquivo em `src/infra/database/migrations/<AAAA_MM_DD_HHMMSS>_<nome>.ts`, com `up()` e `down()` escritos com o schema builder do Kysely (`db.schema.createTable(...)`; `sql` só onde o builder não cobre). Migrator próprio com **lotes (batches)** na tabela `migrations`: cada `migrate` roda os pendentes como um lote e `migrate:rollback` desfaz o último. Cada comando roda numa única transação, com advisory lock; por isso não se usa `CREATE INDEX CONCURRENTLY`. Comandos: `npm run migrate`, `migrate:rollback`, `migrate:status`, `migrate:fresh` (recusado com `NODE_ENV=production`) e `make:migration -- <nome>` | Mesmo fluxo do Laravel; o Migrator do Kysely não tem lote nem rollback por lote |
 | RabbitMQ | `amqplib` encapsulado em `src/infra/platform/messaging/` | |
 | Decimal | `decimal.js` | Dinheiro sem erro de ponto flutuante |
 | Testes | Vitest | Já usado no projeto |

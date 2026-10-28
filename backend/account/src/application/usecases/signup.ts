@@ -13,9 +13,8 @@ import type { IdGenerator } from '../contracts/idGenerator.js';
 import type { TransactionRunner } from '../contracts/transactionRunner.js';
 import type { UseCase } from './useCase.js';
 import type { SignupInput } from '../dtos/signupDto.js';
-import type { SignupOutput } from '../dtos/signupDto.js';
 
-export class Signup implements UseCase<SignupInput, SignupOutput> {
+export class Signup implements UseCase<[input: SignupInput], string> {
   constructor(
     private readonly accountRepository: AccountRepository,
     private readonly passwordHasher: PasswordHasher,
@@ -25,7 +24,7 @@ export class Signup implements UseCase<SignupInput, SignupOutput> {
     private readonly clock: Clock,
   ) {}
 
-  async execute(input: SignupInput): Promise<SignupOutput> {
+  async execute(input: SignupInput): Promise<string> {
     const account = await this.newAccount(input);
 
     await this.transactionRunner.run(async () => {
@@ -33,8 +32,7 @@ export class Signup implements UseCase<SignupInput, SignupOutput> {
       await this.domainEventDispatcher.dispatch(account.pullEvents());
     });
 
-    const output: SignupOutput = { accountId: account.id.value };
-    return output;
+    return account.id.value;
   }
 
   private async newAccount(input: SignupInput): Promise<Account> {

@@ -42,7 +42,6 @@ backend/
     docker-compose.test.yml     ← testes de integração com infra efêmera e rede isolada
     .env.test.example         ← hosts e credenciais dos containers efêmeros de teste
     Dockerfile                ← contexto de build = esta pasta
-    migrations/
     src/
       domain/                 ← entities/, valueObjects/, domainEvents/, domainServices/
       application/            ← usecases/, dtos/, contracts/
@@ -50,8 +49,9 @@ backend/
         http/ grpc/ messaging/ database/
         platform/             ← RNF escritos no serviço: resilience/, messaging/, http/, security/
         contracts/            ← published/ (dono) e consumed/ (cópias), envelope, markets.json
+        database/migrations/  ← migrações estilo Laravel (up/down)
         api.ts  worker.ts  migrate.ts
-    test/                     ← fakes/ (fakes das portas) e support/ (helpers de teste)
+    test/                     ← unit/ e integration/ (espelham src/), fakes/, support/
   wallet/       (mesma estrutura)
   order/        (mesma estrutura)
   matching/     (mesma estrutura, sem api pública)
@@ -183,7 +183,7 @@ Todo serviço segue o mesmo molde. Exemplo `backend/wallet/docker-compose.yml`:
 | Container | Comando (dev) | Depende de |
 |---|---|---|
 | `wallet-db` | `postgres:17-alpine`, volume `wallet-db-data` | — |
-| `wallet-migrate` | `tsx src/infra/migrate.ts` (roda e sai) | `wallet-db` saudável |
+| `wallet-migrate` | `npm run migrate` (roda e sai) | `wallet-db` saudável |
 | `wallet-api` | `tsx watch src/infra/api.ts` (REST + gRPC) | `wallet-migrate` concluído |
 | `wallet-worker` | `tsx watch src/infra/worker.ts` (consumidores + outbox relay) | `wallet-migrate` concluído, `rabbitmq` |
 
@@ -226,9 +226,6 @@ services:
         - action: sync+restart          # contracts: restart regenerates the gRPC code
           path: ./src/infra/contracts
           target: /app/src/infra/contracts
-        - action: sync                  # new migrations, applied by re-running wallet-migrate
-          path: ./migrations
-          target: /app/migrations
         - action: rebuild               # dependencies changed
           path: ./package.json
         - action: rebuild
@@ -245,7 +242,7 @@ O `wallet-worker` tem o mesmo bloco `develop.watch`, com `command` apontando par
 |---|---|---|
 | Código do serviço (`src/`) | **Não** | `sync` → `tsx watch` reinicia em ~1 s |
 | `src/infra/contracts/` do serviço (inclusive `.proto`) | **Não** | `sync+restart` → o comando regenera o código do gRPC e sobe |
-| Nova migração | **Não** | `sync` + `docker compose run --rm wallet-migrate` |
+| Nova migração | **Não** | Cria com `make:migration` (§3.3) e aplica com `docker compose run --rm wallet-migrate` |
 | Variável de ambiente no compose | **Não** | `docker compose up -d` recria só o container, com a mesma imagem |
 | Teste | **Não** | `docker compose exec wallet-api npx vitest` (modo watch) |
 | `package.json` / `package-lock.json` do serviço | Sim | `rebuild` automático pelo watch |
@@ -255,6 +252,20 @@ Subir em modo desenvolvimento:
 ```bash
 docker compose -f backend/docker-compose.yml up --watch
 ```
+
+### 3.3 Migrações (estilo Laravel)
+
+As migrações ficam em `src/infra/database/migrations/` e rodam no container `<svc>-migrate`. Os comandos:
+
+| Laravel | Aqui (dentro de `backend/`, com o mesmo compose que subiu a plataforma) |
+|---|---|
+| `php artisan migrate` | `docker compose -f docker-compose.yml run --rm <svc>-migrate npm run migrate` (é o que o container já faz ao subir) |
+| `php artisan migrate:rollback` | `docker compose -f docker-compose.yml run --rm <svc>-migrate npm run migrate:rollback` |
+| `php artisan migrate:status` | `docker compose -f docker-compose.yml run --rm <svc>-migrate npm run migrate:status` |
+| `php artisan migrate:fresh` | `docker compose -f docker-compose.yml run --rm <svc>-migrate npm run migrate:fresh` |
+| `php artisan make:migration create_x_table` | `docker compose -f docker-compose.yml run --rm -v ./<svc>/src/infra/database/migrations:/app/src/infra/database/migrations <svc>-migrate npm run make:migration -- create_x_table` |
+
+O `make:migration` monta a pasta de migrações do host no container (`-v`), para o arquivo novo aparecer no seu código. Com o serviço subido sozinho, troque `-f docker-compose.yml` por `-f <svc>/docker-compose.yml`: usar o compose do serviço enquanto a plataforma está de pé dá conflito de nome de container.
 
 ### 3.2 Modo de execução (imagem final)
 

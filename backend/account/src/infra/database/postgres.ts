@@ -11,8 +11,8 @@ export interface PostgresSettings {
   readonly password: string;
 }
 
-export const createDatabase = (settings: PostgresSettings): Kysely<Database> =>
-  new Kysely<Database>({
+export const createDatabase = <TDatabase = Database>(settings: PostgresSettings): Kysely<TDatabase> =>
+  new Kysely<TDatabase>({
     dialect: new PostgresDialect({
       pool: new pg.Pool({ ...settings, max: 10, connectionTimeoutMillis: 2_000 }),
     }),

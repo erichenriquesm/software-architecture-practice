@@ -7,9 +7,6 @@ x-watch: &watch
     - action: sync+restart
       path: ./src/infra/contracts
       target: /app/src/infra/contracts
-    - action: sync
-      path: ./migrations
-      target: /app/migrations
     - action: rebuild
       path: ./package.json
     - action: rebuild
@@ -39,7 +36,7 @@ services:
   account-migrate:
     build: { context: ., target: dev }
     container_name: account-migrate
-    command: ["npx", "tsx", "src/infra/migrate.ts"]
+    command: ["npm", "run", "migrate"]
     env_file: .env
     depends_on:
       account-db:

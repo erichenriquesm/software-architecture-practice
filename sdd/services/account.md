@@ -118,7 +118,6 @@ backend/account/
   docker-compose.yml  docker-compose.platform.yml  docker-compose.runtime.yml  docker-compose.test.yml
   Dockerfile  package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
   initdb/roles.sh                   cria account_migrator e account_app no primeiro boot do banco
-  migrations/                       0001_*.sql …
   src/
     domain/
       entities/                     account.ts  aggregateRoot.ts
@@ -128,8 +127,8 @@ backend/account/
       errors.ts
     application/
       usecases/                     signup.ts  getAccount.ts  projectWalletBalance.ts  accountExists.ts  useCase.ts
-      dtos/                         signupDto.ts  getAccountDto.ts  projectWalletBalanceDto.ts  accountExistsDto.ts
-                                    accountView.ts  balanceView.ts
+      dtos/                         signupDto.ts (4 campos)  getAccountDto.ts (6 campos)  accountView.ts  balanceView.ts
+                                    (accountExists e projectWalletBalance não têm DTO: recebem accountId / BalanceChange)
       contracts/                    accountRepository.ts  accountDao.ts  accountBalances.ts  balanceProjection.ts
                                     passwordHasher.ts  transactionRunner.ts  domainEventDispatcher.ts  idGenerator.ts  clock.ts
     infra/
@@ -139,8 +138,9 @@ backend/account/
         wallet/                     grpcWalletGateway.ts  walletAcl.ts  balancesFallbackChain.ts
       messaging/                    walletBalancesConsumer.ts  accountIntegrationEvents.ts
       database/                     kyselyAccountRepository.ts  kyselyAccountDao.ts  kyselyBalanceDao.ts
-                                    kyselyBalanceProjection.ts  kyselyTransactionRunner.ts  postgres.ts
-                                    sqlFileMigrationProvider.ts  database.ts
+                                    kyselyBalanceProjection.ts  kyselyTransactionRunner.ts  postgres.ts  database.ts
+                                    migrator.ts  migrationFiles.ts
+        migrations/                 2026_10_28_000001_create_outbox_table.ts … 000005_create_account_balance_view_table.ts
       crypto/argon2PasswordHasher.ts
       platform/                     config/  events/  http/  messaging/  observability/  resilience/  security/
       contracts/
@@ -153,6 +153,7 @@ backend/account/
       composition.ts  settings.ts  system.ts
       api.ts  worker.ts  migrate.ts
   test/
+    unit/  integration/             espelham src/
     fakes/                          um fake por contrato de application/contracts/
     support/                        Postgres/RabbitMQ/Redis efêmeros, fake gRPC do wallet, fixtures
 ```

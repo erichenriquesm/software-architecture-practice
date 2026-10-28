@@ -16,8 +16,8 @@ const statusFor = (error: unknown): grpc.status =>
 const implementation = (accountExists: AccountExists): AccountServiceServer => ({
   exists: (call, callback) => {
     accountExists
-      .execute({ accountId: call.request.accountId })
-      .then((accountExistsOutput) => callback(null, accountExistsOutput))
+      .execute(call.request.accountId)
+      .then((exists) => callback(null, { exists }))
       .catch((error: unknown) => callback({ code: statusFor(error), details: String(error) }));
   },
 });

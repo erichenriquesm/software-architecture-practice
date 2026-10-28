@@ -18,7 +18,6 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/dist dist
-COPY migrations migrations
 COPY src/infra/contracts src/infra/contracts
 USER node
 CMD ["node", "dist/infra/api.js"]

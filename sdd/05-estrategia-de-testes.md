@@ -109,8 +109,8 @@ Cenários que todo gateway testa: resposta válida · `NOT_FOUND` · `UNAVAILABL
 
   | O quê | Onde |
   |---|---|
-  | Teste de unidade | Ao lado do código testado: `signup.ts` → `signup.spec.ts` |
-  | Teste de integração e de contrato | Ao lado do adapter testado, com sufixo `.int.spec.ts` |
+  | Teste de unidade | `test/unit/`, espelhando `src/`: `src/application/usecases/signup.ts` → `test/unit/application/usecases/signup.spec.ts` |
+  | Teste de integração e de contrato | `test/integration/`, espelhando `src/`: `src/infra/database/migrator.ts` → `test/integration/infra/database/migrator.spec.ts` |
   | Fakes das portas (um por porta, reaproveitados) | `test/fakes/` |
   | Helpers de teste (fake gRPC/HTTP, banco e broker efêmeros, fixtures) | `test/support/` |
 - **Tempo e id controlados** por `Clock`/`IdGenerator` fakes. Nada de `Date.now()` no domínio.
