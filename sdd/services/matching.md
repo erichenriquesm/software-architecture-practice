@@ -60,20 +60,24 @@ Isso implementa as regras do objetivo:
 
 ## 4. Casos de uso
 
-| Caso de uso | Gatilho | Passos |
-|---|---|---|
-| `ExecuteOrder` | `order.accepted.<marketId>` | Se o `orderId` já está no livro → ignora (idempotência). `book.place(entry)` → numa transação: grava entradas alteradas, trades, `sequence`, outbox (`tradeExecuted` × N + `orderRemoved` por STP + `bookSnapshot`). |
-| `RemoveOrder` | `order.cancelRequested.<marketId>` | `book.cancel` → `matching.orderRemoved` + `bookSnapshot`, ou `matching.orderCancelRejected(NOT_IN_BOOK)`. |
+Regra de DTO ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram DTO.
 
-Contratos (interfaces em `application/contracts/`): `OrderBookRepository` (carregar/salvar o livro do mercado), `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`, `Clock`. Não há DAO: este serviço não atende consultas.
+| Caso de uso | Assinatura | Gatilho | Passos |
+|---|---|---|---|
+| `ExecuteOrder` | `execute(input: ExecuteOrderInput): void` | `order.accepted.<marketId>` | Carrega o livro do mercado. Se o `orderId` já está no livro → ignora (idempotência de domínio, além da inbox). `book.place(entry)` → numa transação: grava entradas alteradas e removidas, trades, `sequence`, outbox (`tradeExecuted` × N + `orderRemoved` por STP + `bookSnapshot`). |
+| `RemoveOrder` | `execute(orderId, marketId): void` | `order.cancelRequested.<marketId>` | `book.cancel` → `matching.orderRemoved(CANCELLED)` + `bookSnapshot`, ou `matching.orderCancelRejected(NOT_IN_BOOK)`. |
+
+`ExecuteOrderInput`: `orderId, accountId, marketId, side, quantity, price, acceptedAt` (o payload do `order.accepted`).
+
+Contratos (interfaces em `application/contracts/`): `OrderBookRepository` (`load(marketId)` devolve o livro, vazio se ainda não existe; `save` com checagem de `sequence`), `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator` (id dos trades), `Clock`. Não há DAO: este serviço não atende consultas.
 
 Sagas em que este serviço participa: **S2** (passo repetível, depois do pivot), **S3** (dono: o trade é o pivot) e **S4** (pivot: remover do livro). Ver [06-sagas.md](../06-sagas.md).
 
-### Livro em memória + banco como verdade
-- Ao iniciar o consumo de um mercado, o worker carrega o livro do banco.
-- Cada mensagem é aplicada no livro em memória e persistida **na mesma transação** com o outbox. Só depois do `commit` vem o `ack`.
-- Se a transação falhar, o livro em memória é **descartado e recarregado** do banco antes da próxima tentativa, para não divergir.
-- Como só existe um consumidor ativo por mercado (`single-active-consumer`), não há outro processo escrevendo no mesmo livro.
+### Banco como verdade, livro carregado a cada mensagem
+- Cada mensagem carrega o livro do mercado do banco, aplica a ordem ou o cancelamento e grava tudo **na mesma transação** com o outbox. Só depois do `commit` vem o `ack`.
+- Se a transação falhar, nada fica pela metade: a próxima tentativa carrega de novo o que está no banco.
+- Como só existe um consumidor ativo por mercado (`single-active-consumer`), não há outro processo escrevendo no mesmo livro. O `save` ainda confere a `sequence` (`ConcurrentBookUpdateError`), como defesa.
+- **Simplificação consciente:** manter o livro em memória entre mensagens e só recarregar em caso de falha evitaria a leitura a cada ordem. No conceito, com livros pequenos, a leitura por mensagem é mais simples e sempre consistente; o cache em memória fica como otimização futura, sem mudar domínio nem contratos.
 
 ## 5. Mensageria
 
@@ -127,51 +131,55 @@ Entrada totalmente executada é **apagada** de `book_entry`: o livro guarda só 
 
 ## 7. Configuração
 
-`MARKETS=BTC-USD` (lista). O worker abre um consumidor por mercado configurado. Mercado novo = nova entrada na lista + fila nova.
+Os mercados vêm do `markets.json` (os de `status: active`): o worker abre uma fila `matching.orders.<marketId>` e um consumidor por mercado. Mercado novo = nova entrada no catálogo (e nas cópias dele), sem variável de ambiente.
 
 ## 8. Estrutura
 
 ```
 backend/matching/
-  .env.example  .env.test.example
+  .env.example  .env.test.example  Makefile (migrações e testes; roda no matching-worker, que é o único processo)
   docker/                           Dockerfile  Dockerfile.dockerignore  docker-compose.yml  docker-compose.platform.yml  docker-compose.test.yml
   package.json  package-lock.json  tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
-  migrations/
   src/
     domain/
-      entities/                     orderBook.ts  bookEntry.ts  bids.ts  asks.ts
-      valueObjects/                 trade.ts  marketId.ts  side.ts  quantity.ts  price.ts
-      domainEvents/                 tradeExecuted.ts  orderRemoved.ts  orderCancelRejected.ts  bookChanged.ts
+      entities/                     orderBook.ts  bookEntry.ts  bookSide.ts (bids e asks: a ordenação preço-tempo)  aggregateRoot.ts
+      valueObjects/                 trade.ts  orderId.ts  accountId.ts  marketId.ts  side.ts  quantity.ts  price.ts
+      domainEvents/                 domainEvent.ts  tradeExecuted.ts  orderRemoved.ts  orderCancelRejected.ts  bookChanged.ts
       domainServices/               (vazio por enquanto: toda regra cabe no agregado OrderBook)
       errors.ts
     application/
-      usecases/                     executeOrder.ts  removeOrder.ts
-      dtos/                         executeOrderDto.ts  removeOrderDto.ts
-      contracts/                    orderBookRepository.ts  transactionRunner.ts  domainEventDispatcher.ts
-                                    idGenerator.ts  clock.ts
+      usecases/                     executeOrder.ts  removeOrder.ts  useCase.ts  bookStore.ts (carregar e salvar+despachar)
+      dtos/                         executeOrderDto.ts
+      contracts/                    orderBookRepository.ts  transactionRunner.ts  domainEventDispatcher.ts  idGenerator.ts  clock.ts
     infra/
       http/health.ts                só /health (não há API pública)
       messaging/
-        consumers/marketConsumer.ts um por mercado, com retry em processo
-        integrationEventMapper.ts  outboxEventPublisher.ts
-      database/                     kyselyOrderBookRepository.ts  kyselyTransactionRunner.ts  database.ts
-      platform/                     resilience/  messaging/   (copiados e adaptados; sem gRPC, sem rate limit)
+        consumers/marketOrdersConsumer.ts   um por mercado; retry em processo; consumedEvent.ts
+        matchingIntegrationEvents.ts        domain event → outbox
+      database/                     kyselyOrderBookRepository.ts  kyselyTransactionRunner.ts  postgres.ts  database.ts
+                                    migrator.ts  migrationFiles.ts
+        migrations/                 outbox, inbox, book, book_entry, trade
+      catalog/jsonMarketCatalog.ts  mercados ativos do markets.json
+      platform/                     copiados do order, sem http/ (não há rotas públicas) e sem security/ (não há gRPC)
       contracts/
-        published/events/           matching.tradeExecuted.v1  matching.orderRemoved.v1
-                                    matching.orderCancelRejected.v1  matching.bookSnapshot.v1
+        published/events/           matching.tradeExecuted.v1  matching.orderRemoved.v1  matching.orderCancelRejected.v1  matching.bookSnapshot.v1
         consumed/events/            order.accepted.v1  order.cancelRequested.v1
-        envelope.schema.json  markets.json   (lista de mercados: uma fila e um consumer por mercado)
+        envelope.schema.json  markets.json  markets.schema.json
+      composition.ts  settings.ts  system.ts
       worker.ts  migrate.ts
   test/
+    unit/  integration/             espelham src/
     fakes/  support/
 ```
 
-O evento de domínio `BookChanged` vira o evento de integração `matching.bookSnapshot` no `IntegrationEventMapper`. O `matching` não tem `api.ts`: o `/health` sobe junto com o `worker`.
+Os originais de `matching.tradeExecuted`, `matching.orderRemoved` e `matching.orderCancelRejected` são **os mesmos bytes** das cópias que `order` e `wallet` já guardam (escritas por eles a partir da [mensageria §3](../03-mensageria.md#3-cat%C3%A1logo-de-eventos-v1)); o `matching` passa a ser o dono.
+
+O evento de domínio `BookChanged` vira o evento de integração `matching.bookSnapshot` no `matchingIntegrationEvents`. O `matching` não tem `api.ts`: o `/health` sobe junto com o `worker`.
 
 ### `.env.example`
 
 ```bash
-HEALTH_PORT=3000
+HEALTH_PORT=3001
 DATABASE_HOST=matching-db
 DATABASE_PORT=5432
 DATABASE_NAME=matching
@@ -192,5 +200,5 @@ O `OrderBook` concentra os testes da plataforma. Todo cenário do objetivo vira 
 | Nível | Casos |
 |---|---|
 | Unidade | Exemplo do objetivo (10 @ 83.000 × 5 @ 82.400) · STP: taker encontra maker da mesma conta → maker removido com motivo, taker segue casando com o próximo · STP com o taker parando no livro depois de remover o maker · sem match quando `bid < ask` · preço do maker quando o taker é compra e quando é venda · `side` = lado do taker · prioridade por tempo no mesmo preço · taker grande consome vários makers em cascata e o resto fica no livro · execução total remove o maker · livro nunca fica cruzado (teste por propriedade com ordens aleatórias) · `cancel` de ordem inexistente → `NotInBook` · `order.accepted` repetido não duplica a entrada |
-| Integração | Livro recarregado do banco é igual ao que estava em memória · falha no meio da transação não deixa trade sem entrada atualizada · retry em processo bloqueia o mercado e retoma na ordem certa · `single-active-consumer`: segunda réplica só consome quando a primeira cai |
+| Integração | Livro recarregado do banco é igual ao que estava em memória · falha no meio da transação não deixa trade sem entrada atualizada · consumer de mercado: ordens processadas na ordem de chegada, trade e snapshot publicados no outbox, `order.accepted` repetido não duplica · migrações sobem e descem |
 | Contrato | `tradeExecuted`, `orderRemoved`, `orderCancelRejected`, `bookSnapshot` validam nos schemas |
