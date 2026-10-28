@@ -103,8 +103,10 @@ Sagas em que este serviço participa: **S1**, **S2** (passo compensável e compe
 
 | Método | Rota | Entrada | Saída | Erros |
 |---|---|---|---|---|
-| POST | `/deposit` | `accountId, assetId, quantity` | `204` | `404` conta · `422` ativo/quantidade · `409` conflito de concorrência persistente · `503` `account` fora do ar |
-| POST | `/withdraw` | `accountId, assetId, quantity` | `204` | `404` · `422` (inclui saldo disponível insuficiente) · `409` · `503` |
+| POST | `/deposit` | `assetId, quantity` (o `accountId` vem do JWT) | `204` | `404` conta · `422` ativo/quantidade · `409` conflito de concorrência persistente · `503` `account` fora do ar |
+| POST | `/withdraw` | `assetId, quantity` | `204` | `404` · `422` (inclui saldo disponível insuficiente) · `409` · `503` |
+
+Todas as rotas deste serviço exigem sessão: o `accountId` vem do JWT interno ([autenticação §6](../08-autenticacao-entre-servicos.md#6-identidade-do-usu%C3%A1rio-sess%C3%A3o-no-account-jwt-interno-at%C3%A9-o-servi%C3%A7o)), nunca do corpo. Sem JWT válido → `401`.
 
 `quantity` trafega como **string decimal** (`"0.5"`), como nos eventos: nunca `number`.
 

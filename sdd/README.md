@@ -14,7 +14,8 @@
 | 05 | [Estratégia de testes](05-estrategia-de-testes.md) | Pirâmide: o que vai em cada nível e como rodar |
 | 06 | [Sagas coreografadas](06-sagas.md) | Cada saga: transações locais, compensável × pivot × repetível, compensações, timeout, contramedidas de isolamento |
 | 07 | [Rate limiting](07-rate-limiting.md) | Limites por tipo de uso (edge por IP + serviço por conta), brute force em autenticação, DDoS |
-| 08 | [Autenticação entre serviços](08-autenticacao-entre-servicos.md) | Token compartilhado no gRPC, usuários e permissões por serviço no RabbitMQ, Postgres e Redis, credenciais no `.env` de cada compose, JWT interno para o usuário (futuro) |
+| 08 | [Autenticação entre serviços](08-autenticacao-entre-servicos.md) | Token compartilhado no gRPC, usuários e permissões por serviço no RabbitMQ, Postgres e Redis, credenciais no `.env` de cada compose, login, sessão em cookie e JWT interno do usuário |
+| 09 | [Frontend](09-frontend.md) | Telas, stack, organização por contexto, dados e contratos (decimal, retry, idempotência, 429), erros, autenticação, tema, testes |
 | 99 | [Decisões sobre as lacunas](99-decisoes.md) | As 17 lacunas do objetivo, decididas com base em exchanges e APIs reais, com fontes |
 
 ### Serviços
@@ -44,7 +45,7 @@
 13. **Rate limit por uso** em duas camadas (edge por IP, serviço por conta), com limites mais apertados em autenticação. Se o Redis cair, o limite abre (fail-open) e o serviço registra um aviso.
 14. **Convenções:** casos de uso com `XxxInput`/`XxxOutput`, camelCase, guard clauses sem `else`, VOs no domínio, comentários em inglês e só em último caso, e um caso de uso nunca chama outro (comunicação por evento também dentro do serviço).
 15. **Testes repetíveis:** tempo, id e aleatoriedade controlados, infraestrutura efêmera por worker, rede de teste isolada e **fake de rede** (gRPC/HTTP) para qualquer outro microserviço. Só o E2E sobe os serviços de verdade.
-16. **Autenticação entre serviços:** um token compartilhado no metadata do gRPC (`x-service-token`); usuário próprio, com o mínimo de permissão, no RabbitMQ, no Postgres (um usuário por serviço, que migra e acessa os dados) e no Redis. Todas as credenciais de dev ficam no `.env.example` de cada compose. JWT só para a identidade do usuário, quando o login existir.
+16. **Autenticação entre serviços:** um token compartilhado no metadata do gRPC (`x-service-token`); usuário próprio, com o mínimo de permissão, no RabbitMQ, no Postgres (um usuário por serviço, que migra e acessa os dados) e no Redis. Todas as credenciais de dev ficam no `.env.example` de cada compose. Usuário entra por e-mail e senha no `account`, com sessão em cookie `HttpOnly`; a cada requisição privada o edge troca o cookie por um JWT interno de 60 s (Ed25519) e o serviço tira o `accountId` dele, nunca do corpo.
 17. **Serviços independentes, um repositório por serviço:** cada serviço vive no seu repositório (lockfile e Dockerfile próprios, nada de `../`); este repositório é o guarda-chuva e só aponta para eles (`make clone`, [ambiente §0](04-ambiente-docker.md#0-reposit%C3%B3rios-e-layout-da-raiz)). **Nenhum código é compartilhado**: os RNF (retry, outbox, rate limit, token gRPC…) ficam em `src/infra/platform/` de cada serviço, escritos à mão, sem gerador nem template (o próximo serviço copia do anterior e adapta), e os contratos têm dono (o produtor) e cópias nos consumidores, verificadas por `scripts/check-schemas`.
 18. **Tudo em Docker**: compose por backend, rede `bridge` única (`trading-net`) com DNS por nome, um `.env.example` por compose com os dados de dev, e desenvolvimento com Compose Watch (alterar código não exige rebuild).
 

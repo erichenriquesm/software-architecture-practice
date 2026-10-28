@@ -2,7 +2,7 @@
 
 > Status: **spec** · Vale para toda a API pública REST. O tráfego interno (gRPC, RabbitMQ) tem outra proteção (§6).
 
-Limites são definidos **por tipo de uso**, não um número único para tudo: leitura pública barata aguenta muito; criação de conta e (no futuro) login aguentam pouco, porque são alvo de brute force e de abuso.
+Limites são definidos **por tipo de uso**, não um número único para tudo: leitura pública barata aguenta muito; criação de conta e login aguentam pouco, porque são alvo de brute force e de abuso.
 
 ---
 
@@ -23,7 +23,7 @@ As duas camadas são necessárias: o edge não vê o `accountId` (ele vem no cor
 |---|---|
 | Zona `public` (`/markets/*`) | `limit_req` 20 r/s por IP, `burst=40 nodelay` |
 | Zona `private` (`/accounts/*`, `/orders/*`, `/deposit`, `/withdraw`, `/place_order`, `/cancel_order`) | `limit_req` 10 r/s por IP, `burst=20 nodelay` |
-| Zona `auth` (`/signup`; `/login` no futuro) | `limit_req` 5 r/min por IP, `burst=5 nodelay` (sem `nodelay`, o nginx enfileira e atrasa as requisições do burst em vez de responder na hora) |
+| Zona `auth` (`/signup`, `/login`) | `limit_req` 5 r/min por IP, `burst=5 nodelay` (sem `nodelay`, o nginx enfileira e atrasa as requisições do burst em vez de responder na hora) |
 | Conexões simultâneas | `limit_conn` 20 por IP |
 | Tamanho do corpo | `client_max_body_size 16k` (nenhum payload legítimo passa disso) |
 | Cliente lento | `client_header_timeout 5s`, `client_body_timeout 5s`, `send_timeout 10s` |
@@ -44,6 +44,7 @@ Algoritmo: **contador de janela deslizante** com dois buckets ponderados (`anter
 | Grupo | Endpoints | Limite por **IP** | Limite por **conta** | Por quê |
 |---|---|---|---|---|
 | **Auth** | `POST /signup` | 5 / hora | — (ainda não há conta) | Criação em massa de contas; enumeração de e-mail pelo `409` |
+| **Login** | `POST /login` | 30 / hora | — (o bloqueio por falha é o §4.2) | Teto de tentativas, certas ou erradas, por IP |
 | **Auth por e-mail** | `POST /signup` | — | 3 tentativas / hora **por e-mail** | Mesmo e-mail testado a partir de vários IPs |
 | **Ordens** | `POST /place_order`, `POST /cancel_order` | 100 / 10 s | **50 / 10 s** e **100.000 / 24 h** | Limite próprio de ordens, separado do peso, como a Binance faz |
 | **Movimentação** | `POST /deposit`, `POST /withdraw` | 30 / min | **10 / min** | Dinheiro: pouco uso legítimo, alto impacto |
@@ -65,20 +66,22 @@ Os números são o ponto de partida do conceito e ficam em variáveis `RATE_LIMI
 
 ## 4. Brute force em autenticação
 
-Hoje o único endpoint de autenticação é o `POST /signup`, porque login está fora do escopo ([Q4](99-decisoes.md#q4)). Mesmo assim, ele já recebe as proteções acima, e o desenho do login fica definido para quando entrar.
+Os endpoints de autenticação são o `POST /signup` e o `POST /login` ([Q4](99-decisoes.md#q4)).
 
 ### 4.1 Signup (agora)
 - Limites do grupo **Auth** por IP e por e-mail (§3.1), mais a zona `auth` do edge.
 - **Enumeração de e-mail:** o objetivo exige rejeitar e-mail duplicado (`409`), e isso revela que o e-mail existe. É um trade-off aceito. A mitigação é o limite apertado por IP e por e-mail, e um alarme quando um IP recebe muitos `409`.
 - O hash da senha (argon2id) já é caro de propósito, o que também encarece ataque em massa.
 
-### 4.2 Login (quando entrar, no edge)
-Segue o OWASP:
-- **Bloqueio por conta, não só por IP:** 5 falhas em 15 min bloqueiam aquela conta por 5 min, dobrando a cada reincidência até 24 h. Só IP não basta, porque o ataque se espalha por muitos IPs.
+### 4.2 Login
+No `account`, pelo contrato `LoginThrottle` (adapter Redis com as chaves `account:login:*`). Segue o OWASP:
+- **Bloqueio por e-mail, não só por IP:** 5 falhas em 15 min bloqueiam aquele e-mail por 5 min, dobrando a cada reincidência até 24 h. Só IP não basta, porque o ataque se espalha por muitos IPs.
 - **Bloqueio temporário, nunca permanente:** bloqueio permanente vira arma para derrubar a conta de outra pessoa (lockout DoS).
 - **Limite por IP de falhas totais** (20 / hora, qualquer conta), contra *password spraying*, que testa uma senha em muitas contas para ficar abaixo do limite por conta.
 - **Mensagem genérica** ("credenciais inválidas") e **tempo de resposta constante**, exista a conta ou não.
-- Contadores no Redis, no mesmo plugin.
+- O bloqueio vale para o **e-mail digitado**, exista a conta ou não: bloquear só contas reais revelaria quais existem.
+- Bloqueado → `429 tooManyLoginAttempts` com `Retry-After` (segundos até liberar). Login certo zera as falhas do e-mail.
+- Redis fora do ar → o login segue sem bloqueio e o serviço registra um aviso, como o limitador (§5).
 
 ---
 

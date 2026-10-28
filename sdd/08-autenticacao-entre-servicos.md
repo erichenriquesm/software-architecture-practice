@@ -1,6 +1,6 @@
 # 08 — Autenticação entre serviços
 
-> Status: **spec** · Trata de **serviço provando a outro serviço quem ele é**, e do que cada um pode fazer. A identidade do **usuário** é outro assunto: hoje fica fora do escopo ([Q4](99-decisoes.md#q4)), e o §6 só define como ela vai viajar quando o login existir.
+> Status: **spec** · Trata de **serviço provando a outro serviço quem ele é**, e do que cada um pode fazer. A identidade do **usuário** (login, sessão e o JWT que leva o `accountId` até o serviço) está no §6.
 
 Regra geral: **cada serviço tem credencial própria no RabbitMQ, no Postgres e no Redis, e cada credencial só pode o mínimo que o serviço precisa.** No gRPC, que hoje tem um método só, basta um token compartilhado (§2).
 
@@ -10,7 +10,7 @@ Regra geral: **cada serviço tem credencial própria no RabbitMQ, no Postgres e 
 | RabbitMQ | Usuário e senha por serviço (§3) | Permissões de configure / write / read |
 | Postgres | Um usuário por serviço, que migra e acessa os dados (§4) | O usuário só existe no banco do próprio serviço |
 | Redis | Usuário e senha por serviço (§5) | Só chaves com o prefixo do serviço |
-| REST do edge para os serviços | Nenhuma no conceito (rede interna) | §6 |
+| REST do edge para os serviços | JWT interno do usuário, emitido pelo `account` (§6) | O serviço só aceita requisição com JWT válido para ele (`aud`) |
 
 ---
 
@@ -107,29 +107,66 @@ user wallet on >wallet-redis-dev ~wallet:* resetchannels -@all +eval +evalsha +h
 
 ---
 
-## 6. Identidade do usuário: JWT interno (quando o login existir)
+## 6. Identidade do usuário: sessão no `account`, JWT interno até o serviço
 
-**Fora do escopo do conceito.** Hoje os serviços recebem o `accountId` no corpo da requisição, como define o objetivo. Quando o login for implementado no edge ([Q4](99-decisoes.md#q4)), a identidade do usuário passa a viajar assim:
+O usuário se autentica no **`account`**, dono da identidade, e o edge transporta essa identidade até os serviços sem que nenhum deles veja senha ou cookie. São dois tokens com papéis diferentes:
 
-1. O edge autentica o usuário (API key + assinatura HMAC, como a Binance) e aplica o brute force do [rate limiting §4](07-rate-limiting.md#4-brute-force-em-autentica%C3%A7%C3%A3o).
-2. O edge emite um **JWT interno**, de vida curta, e o envia ao serviço no header `Authorization: Bearer …`:
+| Token | Quem emite | Onde vive | Vida | Serve para |
+|---|---|---|---|---|
+| **Sessão** (opaco, 32 bytes aleatórios) | `account`, no `POST /login` | Cookie `session` no browser; no banco só o SHA-256 | 12 h, fixa | Provar ao edge quem é o usuário |
+| **JWT interno** | `account`, a cada requisição privada | Header `Authorization` do edge até o serviço | 60 s | Provar ao serviço quem é o usuário |
 
-   | Claim | Valor |
-   |---|---|
-   | `iss` | `edge` |
-   | `sub` | `accountId` do usuário |
-   | `aud` | serviço de destino (`order`, `wallet`…) |
-   | `exp` | **60 s** depois da emissão |
-   | `jti` | id único, para log e auditoria |
+### 6.1 Login e sessão
 
-3. Assinatura **assimétrica** (`EdDSA` ou `ES256`). Só o edge tem a chave privada; os serviços só têm a pública e só conseguem **verificar**, nunca emitir.
-4. O adapter de entrada REST verifica assinatura, `iss`, `aud` e `exp`, e passa o `accountId` do token para o `Input` do caso de uso. A partir daí, o `accountId` do corpo é ignorado.
-5. Em eventos e gRPC, o `accountId` continua indo no payload, como já está: o JWT é só a prova de quem fez a requisição na borda, e não atravessa a mensageria.
+1. `POST /login` com e-mail e senha. O `account` confere o hash (argon2id) e cria uma linha em `session` com o hash do token.
+2. A resposta é `204` com `Set-Cookie: session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200`. O front nunca lê o token (`HttpOnly`) e o cookie não vai em requisição de outro site (`SameSite=Strict`), o que já fecha CSRF para uma API JSON.
+3. `POST /logout` marca a sessão como revogada e apaga o cookie (`Max-Age=0`).
+4. Falha de login responde sempre `401 invalidCredentials`, exista o e-mail ou não, e o tempo é o mesmo: sem conta, o `account` confere a senha contra um hash fixo. O brute force segue o [rate limiting §4.2](07-rate-limiting.md#42-login).
+
+### 6.2 Do edge ao serviço
+
+Toda rota privada no edge passa por `auth_request`:
+
+```
+browser ──cookie──▶ edge ──GET /internal/session (cookie, X-Audience)──▶ account
+                     │◀── 200 + X-User-Token: <JWT> ───────────────────────┘
+                     └──Authorization: Bearer <JWT>──▶ wallet | order | account
+```
+
+1. O edge chama `GET /internal/session` no `account`, repassando só o cookie e o header `X-Audience` com o serviço de destino. Essa rota não tem `location` pública: de fora, ela é `404`.
+2. Sessão válida → `200` com o JWT no header `X-User-Token`. Sem cookie, sessão expirada ou revogada → `401`, e o edge devolve `401 unauthenticated` ao browser sem chamar o serviço.
+3. O edge **sobrescreve** `Authorization` com o JWT. Um `Authorization` vindo do browser nunca chega a um serviço.
+
+Claims do JWT:
+
+| Claim | Valor |
+|---|---|
+| `iss` | `account` |
+| `sub` | `accountId` do usuário |
+| `aud` | serviço de destino (`account`, `wallet`, `order`) |
+| `iat` / `exp` | emissão / emissão + **60 s** |
+| `jti` | id único (UUID v7), para log e auditoria |
+
+- **Assinatura `EdDSA` (Ed25519)** com `node:crypto`, sem biblioteca de JWT. Só o `account` tem a chave privada (`USER_TOKEN_PRIVATE_KEY`); `account`, `wallet` e `order` têm a pública (`USER_TOKEN_PUBLIC_KEY`) e só conseguem verificar.
+- O adapter REST de cada serviço verifica assinatura, `alg`, `iss`, `aud` e `exp` (tolerância de 5 s de relógio) antes do handler, e passa o `sub` como `accountId` para o `Input` do caso de uso. Sem token válido → `401 unauthenticated`.
+- O `accountId` **não vem mais do corpo**. Rota com `:accountId` no caminho que não bate com o `sub` → `403 forbidden`.
+- O código que verifica é copiado em `src/infra/platform/security/userToken.ts` de cada serviço, como todo RNF ([README, decisão 17](README.md)).
+- Em eventos e gRPC, o `accountId` continua no payload: o JWT prova quem fez a requisição na borda e não atravessa a mensageria.
 
 O JWT **não** autentica serviço. Quem autentica serviço é o token gRPC (§2) e as credenciais por canal (§3–5).
 
+### 6.3 Chaves
+
+O par Ed25519 de desenvolvimento fica nos `.env.example` (privada só no do `account`), como as demais credenciais de dev (§1). Gerar outro par:
+
+```bash
+openssl genpkey -algorithm ed25519 -out user-token.key && openssl pkey -in user-token.key -pubout -out user-token.pub
+```
+
+O PEM vai numa linha, com `\n` no lugar das quebras. Fora do ambiente local, a privada vem do gerenciador de segredos.
+
 ### O que fica sem autenticação no conceito
-A chamada REST do edge para os serviços trafega sem TLS dentro da `trading-net`. É uma escolha consciente do conceito, que roda numa rede Docker isolada. Quando o JWT interno existir, o serviço passa a recusar requisição sem token válido.
+A chamada REST do edge para os serviços trafega sem TLS dentro da `trading-net`. É uma escolha consciente do conceito, que roda numa rede Docker isolada. O JWT de 60 s limita o estrago de um token vazado nessa rede.
 
 ---
 
@@ -139,6 +176,7 @@ Seguem as regras de repetibilidade ([testes §3](05-estrategia-de-testes.md#3-re
 
 | Nível | Casos |
 |---|---|
-| Unidade | Interceptor: token certo passa · token errado → `UNAUTHENTICATED` · sem token → `UNAUTHENTICATED` |
+| Unidade | Interceptor: token certo passa · token errado → `UNAUTHENTICATED` · sem token → `UNAUTHENTICATED` · JWT: assinatura, `alg`, `iss`, `aud` e `exp` (cada um errado → recusado) · login: senha errada e e-mail inexistente dão o mesmo `401` · bloqueio progressivo |
 | Integração | O fake gRPC (`startFakeGrpcServer`) confere o mesmo header. Casos: gateway manda o token em toda chamada · `UNAUTHENTICATED` não tem retry · no broker de teste, publicar na exchange de outro contexto dá `ACCESS_REFUSED` · usuário Redis não lê chave de outro prefixo |
-| E2E | A plataforma sobe só com os `.env` copiados dos `.env.example`, e os caminhos críticos passam |
+| Integração (sessão) | Login grava só o hash · sessão expirada ou revogada → `401` em `/internal/session` · rota privada sem `Authorization` → `401` · `:accountId` de outra conta → `403` |
+| E2E | A plataforma sobe só com os `.env` copiados dos `.env.example`, e os caminhos críticos passam · signup → login → depósito pelo edge só com o cookie · `Authorization` forjado pelo cliente é ignorado |

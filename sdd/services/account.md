@@ -7,8 +7,9 @@
 - Cadastrar contas (nome, e-mail, CPF, senha) e garantir as regras de cadastro.
 - Responder `GetAccount`: dados cadastrais + saldos (via **projeção local** dos saldos da carteira).
 - Responder ao `wallet`, via gRPC, se uma conta existe (fallback dele).
+- **Autenticar o usuário:** login, sessão e logout, e emitir o JWT interno que o edge leva até os serviços ([autenticação §6](../08-autenticacao-entre-servicos.md#6-identidade-do-usu%C3%A1rio-sess%C3%A3o-no-account-jwt-interno-at%C3%A9-o-servi%C3%A7o)).
 
-**Fora do escopo:** login/autenticação, alteração de cadastro, exclusão de conta ([Q4](../99-decisoes.md#q4)).
+**Fora do escopo:** alteração de cadastro, redefinição de senha, exclusão de conta, MFA ([Q4](../99-decisoes.md#q4)).
 
 ## 2. Workload
 
@@ -36,8 +37,12 @@ Unicidade de e-mail **não** é invariante do agregado (envolve todas as contas)
 | `GetAccount` | Consulta | `AccountDao.findById` + `BalanceDao` (lê só a `account_balance_view`, §7). 404 se não existir. |
 | `ProjectWalletBalance` | Handler de evento | `wallet.balanceChanged` → *upsert* em `account_balance_view` se `version` for maior que a gravada. |
 | `AccountExists` | Consulta (gRPC) | `AccountDao.exists(accountId)`. |
+| `Login` | Comando | `LoginThrottle.check(email, ip)` (bloqueado → `LoginBlockedError` com o tempo restante) → `AccountRepository.findCredentialsByEmail` → `PasswordHasher.verify` (sem conta, verifica contra um hash fixo, para o tempo ser igual) → falha: `LoginThrottle.recordFailure` e `InvalidCredentialsError` · sucesso: `LoginThrottle.reset(email)`, gera o token (`SessionTokenGenerator`), grava `Session` com o hash e devolve `LoginOutput { sessionToken, expiresAt }`. |
+| `Logout` | Comando | `SessionRepository.revoke(hash(token))`. Idempotente: sessão já revogada ou inexistente também responde `204`. |
+| `IssueUserToken` | Consulta (edge) | `SessionDao.findActive(hash(token), now)` → nenhuma → `UnauthenticatedError` · ativa → `UserTokenSigner.sign({ sub: accountId, aud })`. |
+| `GetMe` | Consulta | `AccountDao.findById(accountId do JWT)` → `{ accountId, name, email }`. |
 
-Contratos (interfaces em `application/contracts/`): `AccountRepository`, `AccountDao` (com `AccountView`), `BalanceDao` (com `BalanceView`), `BalanceProjection` (grava a `account_balance_view`), `PasswordHasher` (o hash é lento de propósito; o fake deixa o teste de unidade rápido), `TransactionRunner`, `EventPublisher`, `IdGenerator`, `Clock`.
+Contratos (interfaces em `application/contracts/`): `SessionRepository`, `SessionDao`, `SessionTokenGenerator`, `UserTokenSigner`, `LoginThrottle`, `AccountRepository`, `AccountDao` (com `AccountView`), `BalanceDao` (com `BalanceView`), `BalanceProjection` (grava a `account_balance_view`), `PasswordHasher` (o hash é lento de propósito; o fake deixa o teste de unidade rápido), `TransactionRunner`, `EventPublisher`, `IdGenerator`, `Clock`.
 
 O health check (`/health`) não é caso de uso: fica em `infra/http/health.ts`, com uma sonda por dependência.
 
@@ -46,7 +51,11 @@ O health check (`/health`) não é caso de uso: fica em `infra/http/health.ts`, 
 | Método | Rota | Entrada | Saída | Erros |
 |---|---|---|---|---|
 | POST | `/signup` | `name, email, document, password` | `201 { accountId }` | `422` validação · `409` e-mail já cadastrado |
-| GET | `/accounts/:accountId` | — | `200 { accountId, name, email, document, assets[{ assetId, quantity, available, reserved }] }` | `404` |
+| GET | `/accounts/:accountId` | JWT | `200 { accountId, name, email, document, assets[{ assetId, quantity, available, reserved }] }` | `401` · `403` `:accountId` de outra conta · `404` |
+| POST | `/login` | `email, password` | `204` + `Set-Cookie: session=…` | `401 invalidCredentials` · `429 tooManyLoginAttempts` com `Retry-After` |
+| POST | `/logout` | cookie `session` | `204` + cookie apagado | — |
+| GET | `/me` | JWT | `200 { accountId, name, email }` | `401` |
+| GET | `/internal/session` | cookie `session`, header `X-Audience` | `200` + header `X-User-Token: <JWT>` | `401` · **sem rota pública no edge** |
 
 - `quantity = available + reserved` (saldo total, como pede o objetivo). `available`/`reserved` são extras úteis ([Q12](../99-decisoes.md#q12)).
 - Conta sem linha na projeção (recém-criada) responde `assets: []`: a carteira dela ainda está vazia.
@@ -98,6 +107,17 @@ create table account_balance_view (
   updated_at  timestamptz not null,
   primary key (account_id, asset_id)
 );
+
+-- login sessions; the token itself is never stored
+create table session (
+  session_id   uuid primary key,
+  account_id   uuid not null references account (account_id),
+  token_hash   text not null unique,       -- sha-256 (hex) of the cookie value
+  created_at   timestamptz not null,
+  expires_at   timestamptz not null,       -- created_at + 12 h
+  revoked_at   timestamptz
+);
+create index session_account_idx on session (account_id);
 
 -- outbox, inbox: see 03-mensageria.md §5
 ```

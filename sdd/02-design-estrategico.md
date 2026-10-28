@@ -148,11 +148,13 @@ Se a projeção ainda não tem saldos da conta (conta recém-criada), responde `
 
 | Endpoint | Serviço |
 |---|---|
-| `POST /signup` | `account` |
+| `POST /signup` · `POST /login` · `POST /logout` · `GET /me` | `account` |
 | `GET /accounts/:accountId` | `account` (saldos via projeção de `wallet`) |
 | `POST /deposit` · `POST /withdraw` | `wallet` |
 | `POST /place_order` · `POST /cancel_order` | `order` |
 | `GET /accounts/:accountId/orders` · `GET /orders/:orderId` | `order` |
 | `GET /markets/:marketId` · `/trades` · `/depth` | `market-data` |
 
-O roteamento externo é feito por um **edge proxy** (reverse proxy, sem lógica). É o único ponto que o front conhece; na AWS, o papel dele se divide entre os serviços de borda descritos no [ambiente §6](04-ambiente-docker.md#6-refer%C3%AAncia-de-implanta%C3%A7%C3%A3o-na-aws-fora-do-escopo)). Não confundir com o **Gateway + ACL**, que é o padrão de integração síncrona (gRPC) entre serviços (ver [princípios](01-principios.md#4-integra%C3%A7%C3%A3o-s%C3%ADncrona-gateway--acl)).
+Toda rota, exceto `/signup`, `/login`, `/logout` e `/markets/*`, exige sessão: o edge troca o cookie por um JWT interno antes de chamar o serviço ([autenticação §6](08-autenticacao-entre-servicos.md#6-identidade-do-usu%C3%A1rio-sess%C3%A3o-no-account-jwt-interno-at%C3%A9-o-servi%C3%A7o)).
+
+O roteamento externo é feito por um **edge proxy** (reverse proxy, sem lógica de negócio). É o único ponto que o front conhece; na AWS, o papel dele se divide entre os serviços de borda descritos no [ambiente §6](04-ambiente-docker.md#6-refer%C3%AAncia-de-implanta%C3%A7%C3%A3o-na-aws-fora-do-escopo)). Não confundir com o **Gateway + ACL**, que é o padrão de integração síncrona (gRPC) entre serviços (ver [princípios](01-principios.md#4-integra%C3%A7%C3%A3o-s%C3%ADncrona-gateway--acl)).

@@ -101,10 +101,12 @@ Sagas em que este serviço participa: **S2** (dono), **S3** (fills), **S4** (don
 
 | Método | Rota | Entrada | Saída | Erros |
 |---|---|---|---|---|
-| POST | `/place_order` | `marketId, accountId, side, quantity, price` (`quantity` e `price` como string decimal) | `202 { orderId, status: "pending" }` | `422` |
-| POST | `/cancel_order` | `orderId, accountId` | `202 { orderId, status }` (`cancelled` se estava `pending`; `cancelling` se estava no livro) | `404` · `403` não é dono · `409` status não permite ou conflito de concorrência persistente |
-| GET | `/accounts/:accountId/orders?status=` | — | `200 [{ orderId, marketId, side, quantity, price, fillQuantity, fillPrice, timestamp, status, statusReason }]` | — |
-| GET | `/orders/:orderId` | — | `200 { ...mesmos campos }` | `404` |
+| POST | `/place_order` | `marketId, side, quantity, price` (`quantity` e `price` como string decimal; o `accountId` vem do JWT) | `202 { orderId, status: "pending" }` | `422` |
+| POST | `/cancel_order` | `orderId` | `202 { orderId, status }` (`cancelled` se estava `pending`; `cancelling` se estava no livro) | `404` · `403` não é dono · `409` status não permite ou conflito de concorrência persistente |
+| GET | `/accounts/:accountId/orders?status=` | — | `200 [{ orderId, marketId, side, quantity, price, fillQuantity, fillPrice, timestamp, status, statusReason }]` | `403` `:accountId` de outra conta |
+| GET | `/orders/:orderId` | — | `200 { ...mesmos campos }` | `404` (também quando a ordem é de outra conta, para não revelar que existe) |
+
+Todas as rotas deste serviço exigem sessão: o `accountId` vem do JWT interno ([autenticação §6](../08-autenticacao-entre-servicos.md#6-identidade-do-usu%C3%A1rio-sess%C3%A3o-no-account-jwt-interno-at%C3%A9-o-servi%C3%A7o)), nunca do corpo. Sem JWT válido → `401`.
 
 `POST /place_order` e `POST /cancel_order` aceitam `Idempotency-Key` ([Q13](../99-decisoes.md#q13)). `statusReason` explica status finais não óbvios: `INSUFFICIENT_FUNDS`, `WALLET_NOT_FOUND`, `EXPIRED`, `SELF_TRADE_PREVENTION`.
 
