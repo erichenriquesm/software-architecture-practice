@@ -59,41 +59,41 @@ Transição inválida → `InvalidOrderTransitionError`.
 
 ## 4. Casos de uso
 
-Os casos de uso têm nome de **intenção**, não de evento: nenhum sabe se foi chamado por HTTP, por fila ou por job. Quem liga o gatilho ao caso de uso é o adapter de entrada. Regra de DTO ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram DTO.
+Os casos de uso têm nome de **intenção**, não de evento: nenhum sabe se foi chamado por HTTP, por fila ou por job. Quem liga o gatilho ao caso de uso é o adapter de entrada. Regra de Input/Output ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram objeto, no arquivo do caso de uso.
 
 | Caso de uso | Assinatura | Adapter de entrada (gatilho) | Passos |
 |---|---|---|---|
-| `PlaceOrder` | `execute(input: PlaceOrderInput): string` (o `orderId`) | REST `POST /place_order` | Valida VOs e `MarketFilters` → `Order.place` → salva → despacha `OrderPlaced`. A ordem nasce `pending`. |
-| `CancelOrder` | `execute(orderId, accountId): OrderStatus` | REST `POST /cancel_order` | Carrega → confere o dono (`NotOrderOwnerError` → `403`) → `requestCancel` → salva → despacha `OrderVoided` (estava `pending`) ou `OrderCancelRequested` (estava no livro). Devolve o status novo (`cancelled` ou `cancelling`). |
-| `AcceptOrder` | `execute(orderId): void` | consumer `order.fundsReservation` (`wallet.fundsReserved`) | `markReserved` → despacha `OrderAccepted` (pivot da S2). |
+| `PlaceOrder` | `execute(input: PlaceOrderInput): string` (o `orderId`) | REST `POST /place_order` | Valida VOs e `MarketFilters` → `Order.place` → salva → publica `OrderPlaced`. A ordem nasce `pending`. |
+| `CancelOrder` | `execute(orderId, accountId): OrderStatus` | REST `POST /cancel_order` | Carrega → confere o dono (`NotOrderOwnerError` → `403`) → `requestCancel` → salva → publica `OrderVoided` (estava `pending`) ou `OrderCancelRequested` (estava no livro). Devolve o status novo (`cancelled` ou `cancelling`). |
+| `AcceptOrder` | `execute(orderId): void` | consumer `order.fundsReservation` (`wallet.fundsReserved`) | `markReserved` → publica `OrderAccepted` (pivot da S2). |
 | `RejectOrder` | `execute(orderId, reason): void` | consumer `order.fundsReservation` (`wallet.fundsReservationRejected`) | `markRejected`. |
-| `ExpireOrder` | `execute(orderId): void` | job `expirePendingOrders` (a cada `EXPIRE_PENDING_ORDERS_INTERVAL`) | O job lista as ordens `pending` vencidas (`OrderDao`) e chama `ExpireOrder` **uma vez por ordem**. O caso de uso faz `void(EXPIRED)` → despacha `OrderVoided`. |
+| `ExpireOrder` | `execute(orderId): void` | job `expirePendingOrders` (a cada `EXPIRE_PENDING_ORDERS_INTERVAL`) | O job lista as ordens `pending` vencidas (`OrderDao`) e chama `ExpireOrder` **uma vez por ordem**. O caso de uso faz `void(EXPIRED)` → publica `OrderVoided`. |
 | `ApplyFill` | `execute(input: ApplyFillInput): void` | consumer `order.matchingResults` (`matching.tradeExecuted`) | O consumer chama `ApplyFill` **duas vezes** (ordem de compra e de venda), cada uma na sua transação, inbox `eventId:orderId`. |
 | `RegisterRemoval` | `execute(input: RegisterRemovalInput): void` | consumer `order.matchingResults` (`matching.orderRemoved`) | `markRemoved`. |
 | `RevertCancelRequest` | `execute(orderId): void` | consumer `order.matchingResults` (`matching.orderCancelRejected`) | `cancelRejected`. |
 | `GetOrders` | `execute(accountId, status?): OrderView[]` | REST `GET /accounts/:id/orders` | `OrderDao.listByAccount`. |
 | `GetOrder` | `execute(orderId): OrderView` | REST `GET /orders/:id` | `OrderDao.findById`; `404` se não existir. |
 
-DTOs (`application/dtos/`):
+Inputs (no arquivo do caso de uso) e o modelo de leitura (no arquivo da porta `orderDao.ts`):
 
-| DTO | Campos | Usado por |
+| Tipo | Campos | Usado por |
 |---|---|---|
 | `PlaceOrderInput` | `accountId, marketId, side, quantity, price` | `PlaceOrder` |
 | `ApplyFillInput` | `orderId, tradeId, quantity, price` | `ApplyFill` |
 | `RegisterRemovalInput` | `orderId, remainingQuantity, reason` | `RegisterRemoval` |
 | `OrderView` | `orderId, accountId, marketId, side, quantity, price, fillQuantity, fillPrice, timestamp, status, statusReason` | `GetOrders`, `GetOrder` (modelo de leitura do DAO) |
 
-**Projeção síncrona.** O `KyselyOrderRepository.save` grava a tabela `order` **e** a `order_view` na mesma transação (o `OrderViewProjector` é chamado por ele). Assim toda mudança de estado chega à leitura, inclusive as que não geram evento (rejeição, fill, remoção), sem um handler por tipo de evento.
+**Uma tabela só.** O `KyselyOrderRepository.save` grava também o `status` e o `status_reason` derivados pelo agregado. O `KyselyOrderDao` lê a própria tabela `order`. Assim toda mudança de estado chega à leitura, inclusive as que não geram evento (rejeição, fill, remoção), sem projeção.
 
-**Reações aos eventos de domínio:** o `orderIntegrationEvents` (handler transacional) grava no outbox `order.placed` (`OrderPlaced`), `order.accepted.<m>` (`OrderAccepted`), `order.cancelRequested.<m>` (`OrderCancelRequested`) e `order.voided` (`OrderVoided`).
+**Eventos de domínio:** o caso de uso os entrega ao `EventPublisher` dentro da transação; o `OutboxEventPublisher` grava no outbox `order.placed` (`OrderPlaced`), `order.accepted.<m>` (`OrderAccepted`), `order.cancelRequested.<m>` (`OrderCancelRequested`) e `order.voided` (`OrderVoided`).
 
 **Concorrência:** cada ordem tem `version` (lock otimista), porque o evento do `wallet` e o cancelamento do usuário podem chegar juntos. Conflito → recarrega e tenta de novo (`retryOnConflict`, até 3×); persistindo, `409` no HTTP e retry na fila.
 
-**Preço médio:** `fillPrice = fillValue / fillQuantity` é a única conta que pode não ser exata (`302 / 3`). Ela só existe na leitura (`order_view`), arredondada em 8 casas (meio para o par). O agregado guarda `fillValue` exato e nunca decide nada pelo preço médio.
+**Preço médio:** `fillPrice = fillValue / fillQuantity` é a única conta que pode não ser exata (`302 / 3`). Ela só existe na leitura (calculada pelo `KyselyOrderDao`), arredondada em 8 casas (meio para o par), e é `null` sem fills. O agregado guarda `fillValue` exato e nunca decide nada pelo preço médio.
 
 As regras "conta existe" e "saldo suficiente considerando ordens em aberto" do objetivo são garantidas pelo `wallet` na reserva (§5.2 do [design estratégico](../02-design-estrategico.md#52-placeorder-saga-coreografada)). Por isso o `PlaceOrder` responde `pending`, e não `open`.
 
-Contratos (interfaces em `application/contracts/`): `OrderRepository` (`findById`, `save` com `version`), `OrderDao` (`findById`, `listByAccount`, `listPendingCreatedBefore`), `MarketCatalog` (filtros do mercado lidos do `markets.json`), `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator`, `Clock`. O health check fica em `infra/http/health.ts`.
+Contratos (interfaces em `application/contracts/`): `OrderRepository` (`findById`, `save` com `version`), `OrderDao` (`findById`, `listByAccount`, `listPendingCreatedBefore`), `MarketCatalog` (filtros do mercado lidos do `markets.json`), `TransactionRunner`, `EventPublisher`, `IdGenerator`, `Clock`. O health check fica em `infra/http/health.ts`.
 
 Sagas em que este serviço participa: **S2** (dono), **S3** (fills), **S4** (dono). Ver [06-sagas.md](../06-sagas.md).
 
@@ -141,32 +141,18 @@ create table "order" (
   removal_reason    text,                   -- CANCELLED | SELF_TRADE_PREVENTION
   cancel_requested  boolean not null default false,
   removed_quantity  numeric(36,8),
+  status            text not null,          -- derived by the aggregate, for the reads
+  status_reason     text,
   created_at        timestamptz not null,
   version           bigint not null default 0
 );
 create index order_pending on "order" (created_at) where reservation = 'pending';   -- saga timeout scan
-
--- sync projection (same transaction), shaped for GetOrders
-create table order_view (
-  order_id       uuid primary key,
-  account_id     uuid not null,
-  market_id      text not null,
-  side           text not null,
-  quantity       numeric(36,8) not null,
-  price          numeric(36,8) not null,
-  fill_quantity  numeric(36,8) not null,
-  fill_price     numeric(36,8),
-  status         text not null,             -- already derived
-  status_reason  text,
-  timestamp      timestamptz not null,
-  updated_at     timestamptz not null
-);
-create index order_view_account on order_view (account_id, status, timestamp desc);
+create index order_account on "order" (account_id, status, created_at desc);       -- GetOrders
 
 -- outbox, inbox: see 03-mensageria.md §5
 ```
 
-Por que duas tabelas: a de escrita guarda o que o agregado precisa para decidir (`fill_value`, `removed_quantity`, `reservation`). A `order_view` guarda o que a tela mostra (status já derivado, `fill_price` calculado) e é indexada pela consulta por conta. Atualizar as duas na mesma transação mantém a leitura sem atraso.
+Por que uma tabela só: a leitura é por chave ou por conta, e a tabela `order` já tem tudo. O agregado grava o `status` derivado; o `fill_price` é calculado na consulta. Uma `order_view` separada seria uma segunda cópia sem ganho. A primeira versão tinha essa tabela; a migração `200003_move_order_view_into_order_table` passa `status` e `status_reason` para a `order` e remove a `order_view` (o `down` a recria).
 
 ## 8. Estrutura
 
@@ -184,21 +170,20 @@ backend/order/
     application/
       usecases/                     placeOrder.ts  cancelOrder.ts  acceptOrder.ts  rejectOrder.ts  expireOrder.ts  applyFill.ts
                                     registerRemoval.ts  revertCancelRequest.ts  getOrders.ts  getOrder.ts
-                                    useCase.ts  retryOnConflict.ts  orderStore.ts (carregar e salvar+despachar, comum aos comandos)
-      dtos/                         placeOrderDto.ts  applyFillDto.ts  registerRemovalDto.ts  orderView.ts
-      contracts/                    orderRepository.ts  orderDao.ts  marketCatalog.ts  transactionRunner.ts
-                                    domainEventDispatcher.ts  idGenerator.ts  clock.ts
+                                    retryOnConflict.ts  orderStore.ts (carregar e salvar+publicar, comum aos comandos)
+      contracts/                    orderRepository.ts  orderDao.ts (+ OrderView)  marketCatalog.ts  transactionRunner.ts
+                                    eventPublisher.ts  idGenerator.ts  clock.ts
     infra/
       http/                         orderRoutes.ts (place, cancel, consultas, rate limit)  health.ts
       messaging/
         consumers/                  fundsReservationConsumer.ts  matchingResultsConsumer.ts  consumedEvent.ts
-        orderIntegrationEvents.ts   domain event → outbox
+        outboxEventPublisher.ts     domain event → outbox
       scheduler/expirePendingOrders.ts
-      database/                     kyselyOrderRepository.ts  orderViewProjector.ts  kyselyOrderDao.ts
+      database/                     kyselyOrderRepository.ts  kyselyOrderDao.ts
                                     kyselyTransactionRunner.ts  postgres.ts  database.ts  migrator.ts  migrationFiles.ts
-        migrations/                 outbox, inbox, idempotency_key, order, order_view
+        migrations/                 outbox, inbox, idempotency_key, order, order_view, move_order_view_into_order_table
       catalog/jsonMarketCatalog.ts  lê e valida o markets.json na subida
-      platform/                     copiados do wallet (inclui Consumer com partes e reconexão ao RabbitMQ); sem gRPC
+      platform/                     copiados do wallet (inclui Consumer com partes); sem gRPC
       schemas/
         published/events/           order.placed.v1  order.accepted.v1  order.cancelRequested.v1  order.voided.v1
         consumed/events/            wallet.fundsReserved.v1  wallet.fundsReservationRejected.v1
@@ -243,6 +228,6 @@ LOG_LEVEL=debug
 
 | Nível | Casos |
 |---|---|
-| Unidade | Cada linha da tabela de status · preço médio com vários fills · fill acima da quantidade é recusado · `requestCancel` em `filled`/`rejected` é recusado · **cancelamento com fill atrasado**: `removed` antes do último `trade` termina em `cancelled` com os números certos · `cancelRejected` volta a `filled` · `void(EXPIRED)` só em `pending` e depois do timeout · cancelar em `pending` termina `cancelled` e publica `order.voided` · `fundsReserved` depois de `voided` é ignorado · preço fora do tick, quantidade fora do step e valor abaixo do mínimo são rejeitados · remoção por STP termina `cancelled` com motivo · `PlaceOrder` despacha `OrderPlaced` · `AcceptOrder` despacha `OrderAccepted`, e o `IntegrationEventMapper` grava `order.accepted.<m>` no outbox · `PlaceOrder` não conhece nenhum outro caso de uso (teste de arquitetura) |
-| Integração | `order` e `order_view` gravadas na mesma transação (falha no meio não deixa nenhuma) · `OrderDao` filtra por status e ordena por data · inbox `eventId:orderId` impede fill duplicado · outbox publica `accepted` antes de `cancelRequested` · HTTP: `202`, `403` de quem não é dono, `409` de status que não permite cancelar · job de expiração publica `order.voided` · migrações sobem e descem |
+| Unidade | Cada linha da tabela de status · preço médio com vários fills · fill acima da quantidade é recusado · `requestCancel` em `filled`/`rejected` é recusado · **cancelamento com fill atrasado**: `removed` antes do último `trade` termina em `cancelled` com os números certos · `cancelRejected` volta a `filled` · `void(EXPIRED)` só em `pending` e depois do timeout · cancelar em `pending` termina `cancelled` e publica `order.voided` · `fundsReserved` depois de `voided` é ignorado · preço fora do tick, quantidade fora do step e valor abaixo do mínimo são rejeitados · remoção por STP termina `cancelled` com motivo · `PlaceOrder` publica `OrderPlaced` · `AcceptOrder` publica `OrderAccepted` (fake `recordingEventPublisher`) · `PlaceOrder` não conhece nenhum outro caso de uso (teste de arquitetura) |
+| Integração | `OutboxEventPublisher` grava `order.accepted.<m>` no outbox na transação do caso de uso · `OrderDao` filtra por status e ordena por data · inbox `eventId:orderId` impede fill duplicado · outbox publica `accepted` antes de `cancelRequested` · HTTP: `202`, `403` de quem não é dono, `409` de status que não permite cancelar · job de expiração publica `order.voided` · migrações sobem e descem |
 | Contrato | Eventos publicados e consumidos validam nos schemas · `order.placed` e `order.voided` publicados são idênticos às cópias do `wallet` (`make check`) |

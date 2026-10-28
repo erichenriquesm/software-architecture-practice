@@ -37,7 +37,7 @@ O microcache de 1 s não altera a consistência na prática: as projeções já 
 
 ## 3. Camada 2 — serviço (por uso)
 
-Algoritmo: **contador de janela deslizante** com dois buckets ponderados (`anterior × (1 − tempoDecorrido/janela) + atual`), executado num script Lua no **Redis** (atômico) e compartilhado entre réplicas do mesmo serviço. É a mesma classe pura (`SlidingWindowCounter`) usada pelo limitador em memória, para os dois darem o mesmo resultado. Guardar cada requisição (lista ordenada) foi descartado: a cota de 100.000 ordens por 24 h viraria 100 mil itens por conta. Chave: `<service>:rl:<grupo>:<accountId|ip>:<inícioDoBucket>`, com expiração de duas janelas.
+Algoritmo: **contador de janela deslizante** com dois buckets ponderados (`anterior × (1 − tempoDecorrido/janela) + atual`), executado num script Lua no **Redis** (atômico) e compartilhado entre réplicas do mesmo serviço. Guardar cada requisição (lista ordenada) foi descartado: a cota de 100.000 ordens por 24 h viraria 100 mil itens por conta. Chave: `<service>:rl:<grupo>:<accountId|ip>:<inícioDoBucket>`, com expiração de duas janelas.
 
 ### 3.1 Grupos e limites
 
@@ -59,18 +59,7 @@ Os números são o ponto de partida do conceito e ficam em variáveis `RATE_LIMI
 - **`429 Too Many Requests`** com `Retry-After` (segundos).
 - Toda resposta dos grupos limitados traz os headers do rascunho IETF: `RateLimit-Policy` (política fixa, ex.: `"orders";q=50;w=10`) e `RateLimit` (quanto resta, ex.: `"orders";r=12;t=4`).
 - Requisição barrada **não executa nada**: o limite é checado antes do caso de uso, no adapter de entrada.
-- A requisição repetida com a mesma `Idempotency-Key` também conta, porque retry agressivo é exatamente o que o limite deve conter.
-
-### 3.3 Bloqueio escalonado para quem insiste
-
-Quem continua batendo depois do `429` é bloqueado por tempo crescente, como a Binance faz:
-
-| Gatilho | Bloqueio |
-|---|---|
-| 10 respostas `429` para o mesmo IP em 1 min | **2 min** |
-| Novo gatilho durante 24 h | dobra (4 min, 8 min…) até o teto de **24 h** |
-
-Durante o bloqueio, todas as rotas do serviço respondem `429` com o `Retry-After` do bloqueio. A lista de bloqueio fica no Redis (`<service>:rl:ban:<ip>`), com expiração automática.
+- A requisição repetida com a mesma `Idempotency-Key` (onde existe: ordens e movimentação) também conta, porque retry agressivo é exatamente o que o limite deve conter.
 
 ---
 
@@ -95,12 +84,7 @@ Segue o OWASP:
 
 ## 5. Resiliência do próprio limitador
 
-O limitador não pode virar ponto único de falha. Usa a mesma **corrente de fallback** do resto da plataforma ([princípios §5.3](01-principios.md#53-fallback-com-chain-of-responsibility)):
-
-1. `RedisRateLimiter` — contador compartilhado entre réplicas.
-2. `InMemoryRateLimiter` — se o Redis estiver fora, cada réplica limita sozinha com os mesmos números. Fica mais permissivo (o limite vale por réplica), mas **nunca deixa passar sem limite**.
-
-Os dois são **adapters** da porta `RateLimiter`, e a corrente é um adapter composto.
+O limitador não pode virar ponto único de falha. Há um limitador só, o `RedisRateLimiter`. Se o Redis falhar, a requisição **passa** e o serviço registra um aviso no log (fail-open). Bloquear todo mundo porque o contador caiu seria pior que ficar alguns segundos sem limite; o edge continua limitando por IP.
 
 ---
 
@@ -120,15 +104,15 @@ O edge mitiga **ataque na camada de aplicação** (muitas requisições HTTP). *
 
 ## 8. Infraestrutura
 
-- **Redis** (`redis:7-alpine`, container `redis`) entra no compose de infraestrutura compartilhada, ao lado do RabbitMQ, na `trading-net`. É técnico, como o broker: guarda só contadores e bloqueios, com expiração. Cada serviço usa o próprio prefixo de chave. Não é banco de domínio, então não viola o "um banco por serviço".
+- **Redis** (`redis:7-alpine`, container `redis`) entra no compose de infraestrutura compartilhada, ao lado do RabbitMQ, na `trading-net`. É técnico, como o broker: guarda só contadores, com expiração. Cada serviço usa o próprio prefixo de chave. Não é banco de domínio, então não viola o "um banco por serviço".
 - Configuração do nginx em `backend/infra/edge/nginx.conf`.
 
 ## 9. Testes
 
 | Nível | Casos |
 |---|---|
-| Unidade | Janela deslizante; cálculo de peso; escalonamento do bloqueio (2 → 4 → 8 min, teto 24 h); corrente Redis → memória |
-| Integração | Limite compartilhado entre duas instâncias com o mesmo Redis; Redis parado → cai para memória sem deixar passar sem limite; headers `RateLimit`/`Retry-After` |
+| Unidade | Janela deslizante; cálculo de peso |
+| Integração | Limite compartilhado entre duas instâncias com o mesmo Redis; Redis parado → a requisição passa e o aviso vai para o log; headers `RateLimit`/`Retry-After` |
 | E2E | 6º `POST /signup` do mesmo IP em 1 h → `429`; rajada de ordens acima de 50 / 10 s → `429` sem criar ordem |
 
 ## Fontes

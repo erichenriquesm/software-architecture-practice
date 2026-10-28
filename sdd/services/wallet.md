@@ -15,7 +15,7 @@
 
 ## 2. Workload
 
-Escrita concorrente **na mesma conta** (depósito + reserva + liquidação podem chegar juntos). Precisa de **consistência forte por conta** e trilha de auditoria. Leitura é pequena (gRPC de saldos, fallback do `account`).
+Escrita concorrente **na mesma conta** (depósito + reserva + liquidação podem chegar juntos). Precisa de **consistência forte por conta** e trilha de auditoria. Leitura pública não há: os saldos chegam ao `account` por `wallet.balanceChanged`.
 
 ## 3. Modelo de domínio
 
@@ -56,32 +56,30 @@ Cada mudança de saldo emite `BalanceChanged(accountId, assetId, available, rese
 
 ## 4. Casos de uso
 
-Nomes de intenção; o gatilho é do adapter de entrada. Regra de DTO ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram DTO; nada de alias.
+Nomes de intenção; o gatilho é do adapter de entrada. Regra de Input/Output ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram objeto, no arquivo do caso de uso; nada de alias.
 
 | Caso de uso | Assinatura | Adapter de entrada (gatilho) | Passos |
 |---|---|---|---|
 | `OpenWallet` | `execute(accountId): void` | consumer `wallet.accountCreated` | Cria carteira vazia se não existir (`Wallet.open`). |
-| `Deposit` | `execute(movement: FundsMovement): void` | REST `POST /deposit` | Garante a carteira (§7) → `deposit` → salva → despacha `BalanceChanged`. |
-| `Withdraw` | `execute(movement: FundsMovement): void` | REST `POST /withdraw` | Garante a carteira → `withdraw` → salva → despacha `BalanceChanged`. |
-| `ReserveFunds` | `execute(input: ReserveFundsInput): void` | consumer `wallet.orderPlaced` | Ordem com lápide → nada. Garante a carteira; sem conta → despacha `FundsReservationRejected(WALLET_NOT_FOUND)`. `reserve` → despacha `FundsReserved` + `BalanceChanged`. `InsufficientFundsError` → despacha `FundsReservationRejected(INSUFFICIENT_FUNDS)` (é evento, não retry). |
+| `Deposit` | `execute(input: DepositInput): void` | REST `POST /deposit` | Garante a carteira (§7) → `deposit` → salva → publica `BalanceChanged`. |
+| `Withdraw` | `execute(input: WithdrawInput): void` | REST `POST /withdraw` | Garante a carteira → `withdraw` → salva → publica `BalanceChanged`. |
+| `ReserveFunds` | `execute(input: ReserveFundsInput): void` | consumer `wallet.orderPlaced` | Ordem com lápide → nada. Garante a carteira; sem conta → publica `FundsReservationRejected(WALLET_NOT_FOUND)`. `reserve` → publica `FundsReserved` + `BalanceChanged`. `InsufficientFundsError` → publica `FundsReservationRejected(INSUFFICIENT_FUNDS)` (é evento, não retry). |
 | `SettleTradeSide` | `execute(input: SettleTradeSideInput): void` | consumer `wallet.tradeExecuted` | O consumer chama **duas vezes** (lado comprador e lado vendedor), cada uma na sua transação, inbox `eventId:accountId:role`. Comprador e vendedor são sempre contas diferentes: o `matching` aplica prevenção de self-trade ([Q9](../99-decisoes.md#q9)). |
-| `ReleaseReservation` | `execute(input: ReleaseReservationInput): void` | consumer `wallet.orderRemoved` | `releaseRemaining` → despacha `BalanceChanged`. |
-| `CompensateReservation` | `execute(orderId, accountId): void` | consumer `wallet.orderVoided` | Grava a lápide (`VoidedOrders`) → se houver reserva aberta, `voidReservation` → despacha `BalanceChanged`. |
-| `GetBalances` | `execute(accountId): WalletBalancesView` | gRPC `WalletService.GetBalances` | `BalanceDao.findByAccount` → `{ balances, version }`, ou `WalletNotFoundError` (vira `NOT_FOUND`). |
+| `ReleaseReservation` | `execute(input: ReleaseReservationInput): void` | consumer `wallet.orderRemoved` | `releaseRemaining` → publica `BalanceChanged`. |
+| `CompensateReservation` | `execute(orderId, accountId): void` | consumer `wallet.orderVoided` | Grava a lápide (`VoidedOrders`) → se houver reserva aberta, `voidReservation` → publica `BalanceChanged`. |
 
-DTOs (`application/dtos/`):
+Inputs (cada um no arquivo do seu caso de uso):
 
-| DTO | Campos | Usado por |
+| Input | Campos | Usado por |
 |---|---|---|
-| `FundsMovement` | `accountId, assetId, quantity` | `Deposit` e `Withdraw` (o mesmo tipo, sem alias) |
+| `DepositInput`, `WithdrawInput` | `accountId, assetId, quantity` | `Deposit`, `Withdraw` |
 | `ReserveFundsInput` | `orderId, accountId, marketId, side, quantity, price` | `ReserveFunds` |
 | `SettleTradeSideInput` | `tradeId, orderId, accountId, role (buyer \| seller), marketId, quantity, price` | `SettleTradeSide` |
 | `ReleaseReservationInput` | `orderId, accountId, remainingQuantity` | `ReleaseReservation` |
-| `WalletBalancesView`, `AssetBalanceView` | `balances[{ assetId, available, reserved }], version` | `GetBalances` (modelo de leitura do DAO) |
 
 **"Garante a carteira"** não é chamar o `OpenWallet`: um caso de uso nunca chama outro. É o mesmo passo de domínio (`Wallet.open`) usado dentro da transação do caso de uso atual, depois que a porta `AccountGateway` confirma que a conta existe (§7).
 
-Reações aos eventos de domínio: `IntegrationEventMapper` (handler transacional) grava `wallet.fundsReserved`, `wallet.fundsReservationRejected` e `wallet.balanceChanged` no outbox.
+Eventos de domínio: o caso de uso os entrega ao `EventPublisher` dentro da transação; o `OutboxEventPublisher` grava `wallet.fundsReserved`, `wallet.fundsReservationRejected` e `wallet.balanceChanged` no outbox.
 
 **Concorrência:** controle otimista em `wallet.version`. Conflito → o caso de uso recarrega e tenta de novo (até 3×, em processo). Persistindo, no HTTP vira `409`; no consumidor, é erro transitório → fila de retry.
 
@@ -93,10 +91,9 @@ Contratos (interfaces em `application/contracts/`):
 |---|---|
 | `WalletRepository` | `findByAccount`, `save` (com `version` otimista; grava saldos, reservas e ledger) |
 | `VoidedOrders` | Lápide da saga S2: `isVoided(orderId)`, `markVoided(orderId)` |
-| `BalanceDao` | `findByAccount(accountId)` → `WalletBalancesView` |
-| `AccountGateway` | `exists(accountId)`; implementado pela corrente de §7 |
+| `AccountGateway` | `exists(accountId)`, via gRPC (§7) |
 | `MarketCatalog` | Precisão de cada ativo e os ativos base/quote de cada mercado, lidos do `markets.json` |
-| `TransactionRunner`, `DomainEventDispatcher`, `Clock` | Como no `account` |
+| `TransactionRunner`, `EventPublisher`, `Clock` | Como no `account` |
 
 O health check (`/health`) não é caso de uso: fica em `infra/http/health.ts`.
 
@@ -115,15 +112,7 @@ Ambos aceitam `Idempotency-Key`, com o comportamento da Stripe: a mesma chave de
 
 ## 6. gRPC interno
 
-```proto
-service WalletService {
-  rpc GetBalances (GetBalancesRequest) returns (GetBalancesResponse);
-  // { account_id } → { balances: [{ asset_id, available, reserved }], version }
-  // NOT_FOUND when the wallet does not exist
-}
-```
-
-Quem chama se identifica com nome + token no metadata. Allowlist: `GetBalances` só pode ser chamado por `account` ([autenticação §2](../08-autenticacao-entre-servicos.md#2-grpc-interno-token--allowlist)). Quando o `wallet` chama o `account` (`Exists`), manda `x-service-name: wallet` e o próprio token.
+O `wallet` não expõe gRPC. Ele só **chama** o `account` (`AccountService.Exists`, §7), mandando o token compartilhado no metadata `x-service-token` ([autenticação §2](../08-autenticacao-entre-servicos.md#2-grpc-interno-token-compartilhado)).
 
 ## 7. Integração síncrona e resiliência
 
@@ -196,7 +185,7 @@ create table ledger_entry (
 -- outbox, inbox: see 03-mensageria.md §5
 ```
 
-**Exceção consciente ao CQRS:** não há `balance_view`. A tabela `balance` já é a resposta do `GetBalances` (consulta por chave primária), e esse endpoint é só fallback. O `BalanceDao` lê `balance` diretamente. Se surgir relatório de carteira (extrato, por exemplo), ele lê `ledger_entry` ou ganha uma `*_view` própria.
+Não há `balance_view` nem DAO: o `wallet` não tem leitura pública, e os saldos chegam ao `account` por `wallet.balanceChanged`. Se surgir relatório de carteira (extrato, por exemplo), ele lê `ledger_entry` ou ganha uma `*_view` própria.
 
 O `check` no banco é a última defesa da invariante 1. A regra de verdade está no agregado.
 
@@ -215,29 +204,25 @@ backend/wallet/
       errors.ts
     application/
       usecases/                     openWallet.ts  deposit.ts  withdraw.ts  reserveFunds.ts  settleTradeSide.ts
-                                    releaseReservation.ts  compensateReservation.ts  getBalances.ts
-                                    useCase.ts  retryOnConflict.ts  walletStore.ts (carregar/abrir e salvar+despachar, comum aos comandos)
-      dtos/                         fundsMovement.ts  reserveFundsDto.ts  settleTradeSideDto.ts  releaseReservationDto.ts  walletBalancesView.ts
-      contracts/                    walletRepository.ts  voidedOrders.ts  balanceDao.ts  accountGateway.ts  marketCatalog.ts
-                                    transactionRunner.ts  domainEventDispatcher.ts  clock.ts
+                                    releaseReservation.ts  compensateReservation.ts
+                                    retryOnConflict.ts  walletStore.ts (carregar/abrir e salvar+publicar, comum aos comandos)
+      contracts/                    walletRepository.ts  voidedOrders.ts  accountGateway.ts  marketCatalog.ts
+                                    transactionRunner.ts  eventPublisher.ts  clock.ts
     infra/
       http/                         walletRoutes.ts (deposit, withdraw, rate limit)  health.ts
-      grpc/
-        walletGrpcServer.ts         servidor do GetBalances, com o interceptor de nome + token
-        account/                    grpcAccountGateway.ts  accountAcl.ts
+      grpc/account/                 grpcAccountGateway.ts (manda o token)  accountAcl.ts
       messaging/
         consumers/                  accountCreatedConsumer.ts  orderPlacedConsumer.ts  tradeExecutedConsumer.ts
                                     orderRemovedConsumer.ts  orderVoidedConsumer.ts
                                     consumedEvent.ts (ACL de entrada: tipo, versão e schema; classificação de erro)
-        walletIntegrationEvents.ts  domain event → outbox
-      database/                     kyselyWalletRepository.ts  kyselyVoidedOrders.ts  kyselyBalanceDao.ts
+        outboxEventPublisher.ts     domain event → outbox
+      database/                     kyselyWalletRepository.ts  kyselyVoidedOrders.ts
                                     kyselyTransactionRunner.ts  postgres.ts  database.ts  migrator.ts  migrationFiles.ts
         migrations/                 <timestamp>_create_<tabela>_table.ts, uma por tabela de §9 + outbox, inbox, idempotency_key
       catalog/jsonMarketCatalog.ts  lê e valida o markets.json na subida
-      platform/                     config/  events/  http/  messaging/  observability/  resilience/  security/   (copiados do account)
+      platform/                     config/  http/  messaging/  observability/  resilience/   (copiados do account)
       schemas/
         published/events/           wallet.fundsReserved.v1  wallet.fundsReservationRejected.v1  wallet.balanceChanged.v1
-        published/proto/wallet.proto
         consumed/events/            account.created.v1  order.placed.v1  order.voided.v1
                                     matching.tradeExecuted.v1  matching.orderRemoved.v1
         consumed/proto/account.proto
@@ -258,7 +243,6 @@ Os schemas de `order.*` e `matching.*` são escritos agora pelo `wallet` a parti
 
 ```bash
 API_PORT=3000
-GRPC_PORT=50051
 HEALTH_PORT=3001
 DATABASE_HOST=wallet-db
 DATABASE_PORT=5432
@@ -272,9 +256,7 @@ REDIS_HOST=redis
 REDIS_USER=wallet
 REDIS_PASSWORD=wallet-redis-dev
 ACCOUNT_GRPC_ADDR=account-api:50051
-GRPC_SERVICE_NAME=wallet
-GRPC_SERVICE_TOKEN=wallet-grpc-dev
-GRPC_ALLOWED_CALLERS=account:account-grpc-dev
+ACCOUNT_GRPC_TOKEN=internal-grpc-dev
 RATE_LIMITS_MOVEMENT_PER_IP=30/1m
 RATE_LIMITS_MOVEMENT_PER_ACCOUNT=10/1m
 LOG_LEVEL=debug
@@ -284,6 +266,6 @@ LOG_LEVEL=debug
 
 | Nível | Casos |
 |---|---|
-| Unidade | Depósito e saque (limites, ativo inválido) · reserva de compra (`qty × price` em USD) e de venda (`qty` em BTC) · reserva repetida é ignorada · saldo insuficiente considerando reservas abertas · liquidação do comprador devolve a diferença de preço · liquidação do vendedor · **`settle` e `release` em qualquer ordem dão o mesmo saldo final** · liberação por remoção STP (`orderRemoved` com motivo `SELF_TRADE_PREVENTION`) · `ReserveFunds` publica rejeição em vez de lançar erro · corrente "conta existe?" · compensação: `order.voided` antes e depois de `order.placed` termina com saldo intacto · depósito com mais casas que a precisão do ativo é rejeitado |
-| Integração | Conflito de `version` com duas transações simultâneas · `check` do banco barra saldo negativo · inbox ignora `tradeExecuted` duplicado e não reaplica o lado já liquidado quando o outro falha · ledger registra cada mudança · corrente "conta existe?" contra o fake gRPC do `account` (`Exists` com retry só em `UNAVAILABLE`) · migrações sobem e descem |
-| Contrato | Eventos publicados validam nos schemas · `WalletService` implementa o `.proto` · `GetBalances` recusa token errado (`UNAUTHENTICATED`) e chamador fora da allowlist (`PERMISSION_DENIED`) |
+| Unidade | Depósito e saque (limites, ativo inválido) · reserva de compra (`qty × price` em USD) e de venda (`qty` em BTC) · reserva repetida é ignorada · saldo insuficiente considerando reservas abertas · liquidação do comprador devolve a diferença de preço · liquidação do vendedor · **`settle` e `release` em qualquer ordem dão o mesmo saldo final** · liberação por remoção STP (`orderRemoved` com motivo `SELF_TRADE_PREVENTION`) · `ReserveFunds` publica rejeição em vez de lançar erro · fallback "conta existe?" · compensação: `order.voided` antes e depois de `order.placed` termina com saldo intacto · depósito com mais casas que a precisão do ativo é rejeitado |
+| Integração | Conflito de `version` com duas transações simultâneas · `check` do banco barra saldo negativo · inbox ignora `tradeExecuted` duplicado e não reaplica o lado já liquidado quando o outro falha · ledger registra cada mudança · fallback "conta existe?" contra o fake gRPC do `account` (`Exists` com retry só em `UNAVAILABLE`, token em toda chamada) · migrações sobem e descem |
+| Contrato | Eventos publicados validam nos schemas · o cliente gRPC usa a cópia de `account.proto` |

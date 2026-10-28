@@ -2,11 +2,11 @@
 
 > Status: **spec** · Trata de **serviço provando a outro serviço quem ele é**, e do que cada um pode fazer. A identidade do **usuário** é outro assunto: hoje fica fora do escopo ([Q4](99-decisoes.md#q4)), e o §6 só define como ela vai viajar quando o login existir.
 
-Regra geral: **cada serviço tem credencial própria em cada canal, e cada credencial só pode o mínimo que o serviço precisa.** Nenhum serviço usa a senha ou o token de outro.
+Regra geral: **cada serviço tem credencial própria no RabbitMQ, no Postgres e no Redis, e cada credencial só pode o mínimo que o serviço precisa.** No gRPC, que hoje tem um método só, basta um token compartilhado (§2).
 
 | Canal | Como o serviço se identifica | O que limita o acesso |
 |---|---|---|
-| gRPC interno | Nome + token no metadata (§2) | Lista de quem pode chamar cada método |
+| gRPC interno | Token compartilhado no metadata (§2) | Só quem tem o token chama; hoje há um método só |
 | RabbitMQ | Usuário e senha por serviço (§3) | Permissões de configure / write / read |
 | Postgres | Um usuário por serviço, que migra e acessa os dados (§4) | O usuário só existe no banco do próprio serviço |
 | Redis | Usuário e senha por serviço (§5) | Só chaves com o prefixo do serviço |
@@ -23,60 +23,34 @@ Regra geral: **cada serviço tem credencial própria em cada canal, e cada crede
 | Usuário e senha do serviço no RabbitMQ | `backend/infra/` | `backend/<svc>/` |
 | Usuário e senha do serviço no Redis | `backend/infra/` | `backend/<svc>/` |
 | Usuários e senhas do Postgres | `backend/<svc>/` (o banco é do próprio serviço) | `backend/<svc>/` |
-| Token gRPC do serviço | `backend/<svc>/` de quem recebe a chamada | `backend/<svc>/` de quem chama |
+| Token gRPC compartilhado | `backend/account/` (servidor, `GRPC_TOKEN`) | `backend/wallet/` (cliente, `ACCOUNT_GRPC_TOKEN`) |
 
 Quando a mesma credencial aparece em dois `.env.example`, os dois têm o mesmo valor. Os valores do `.env.example` são **só de desenvolvimento**; fora do ambiente local, as mesmas variáveis vêm do gerenciador de segredos ([ambiente §6](04-ambiente-docker.md#6-refer%C3%AAncia-de-implanta%C3%A7%C3%A3o-na-aws-fora-do-escopo)).
 
 ---
 
-## 2. gRPC interno: token + allowlist
+## 2. gRPC interno: token compartilhado
 
-Hoje existem dois métodos gRPC, os dois de fallback:
+Hoje existe um método gRPC só, de fallback: `AccountService.Exists`, servido pelo `account` e chamado pelo `wallet`. Para um método e um chamador, nome de serviço e allowlist por método seriam cerimônia. Basta um token.
 
-| Servidor | Método | Quem pode chamar |
-|---|---|---|
-| `account` | `AccountService.Exists` | `wallet` |
-| `wallet` | `WalletService.GetBalances` | `account` |
-
-### 2.1 Quem está chamando
-
-Quem chama manda, em toda chamada, dois headers no metadata do gRPC:
+Quem chama manda o token no metadata de toda chamada:
 
 ```
-x-service-name:  wallet
-x-service-token: wallet-grpc-dev
+x-service-token: internal-grpc-dev
 ```
-
-Quem recebe tem no `.env` os chamadores conhecidos e o token de cada um:
 
 ```bash
-# backend/account/.env.example
-GRPC_ALLOWED_CALLERS=wallet:wallet-grpc-dev
+# backend/account/.env.example (server)
+GRPC_TOKEN=internal-grpc-dev
 ```
 ```bash
-# backend/wallet/.env.example (as the caller)
-GRPC_SERVICE_NAME=wallet
-GRPC_SERVICE_TOKEN=wallet-grpc-dev
+# backend/wallet/.env.example (client)
+ACCOUNT_GRPC_TOKEN=internal-grpc-dev
 ```
 
-Se o nome não está na lista ou o token não bate → **`UNAUTHENTICATED`**.
+Um **interceptor** em `src/infra/platform/security/` do `account` roda antes de qualquer handler e compara o token com `crypto.timingSafeEqual` (buffers do mesmo tamanho). Sem token ou token errado → **`UNAUTHENTICATED`**. É **erro permanente**: o gateway não faz retry ([princípios §4.1](01-principios.md#41-rest-ou-grpc)).
 
-### 2.2 O que ele pode chamar
-
-Saber quem chamou não basta: cada método tem a lista de quem pode chamá-lo (a tabela acima). Ela fica no código do serviço (`grpcAllowlist`), porque é decisão do dono do método, e é validada na inicialização. Método sem entrada na lista é **negado por padrão**.
-
-Chamador conhecido, mas fora da lista do método → **`PERMISSION_DENIED`**, com log (`caller`, `method`, `correlationId`).
-
-### 2.3 Onde fica no código
-
-Um **interceptor** em `src/infra/platform/security/`, que roda antes de qualquer handler:
-
-1. lê `x-service-name` e `x-service-token`;
-2. confere com `GRPC_ALLOWED_CALLERS` → senão `UNAUTHENTICATED`;
-3. confere com `grpcAllowlist` do método → senão `PERMISSION_DENIED`;
-4. chama o handler.
-
-Do lado de quem chama, o gateway gRPC acrescenta os dois headers em toda chamada. `UNAUTHENTICATED` e `PERMISSION_DENIED` são **erros permanentes**: o gateway não faz retry ([princípios §4.1](01-principios.md#41-rest-ou-grpc)).
+Se surgirem mais métodos ou chamadores, aí sim cada chamador ganha o próprio token e cada método a lista de quem pode chamá-lo.
 
 O tráfego gRPC não é criptografado: fica dentro da `trading-net`. Fora do ambiente local, TLS pode ser ligado no canal sem mudar essa checagem.
 
@@ -165,6 +139,6 @@ Seguem as regras de repetibilidade ([testes §3](05-estrategia-de-testes.md#3-re
 
 | Nível | Casos |
 |---|---|
-| Unidade | Interceptor: nome e token certos passam · token errado → `UNAUTHENTICATED` · nome desconhecido → `UNAUTHENTICATED` · chamador fora da lista do método → `PERMISSION_DENIED` · método sem entrada → negado · leitura de `GRPC_ALLOWED_CALLERS` (formato inválido impede a subida) |
-| Integração | O fake gRPC (`startFakeGrpcServer`) confere os mesmos headers. Casos: gateway manda nome e token em toda chamada · `UNAUTHENTICATED` e `PERMISSION_DENIED` não têm retry · no broker de teste, publicar na exchange de outro contexto dá `ACCESS_REFUSED` · usuário Redis não lê chave de outro prefixo |
+| Unidade | Interceptor: token certo passa · token errado → `UNAUTHENTICATED` · sem token → `UNAUTHENTICATED` |
+| Integração | O fake gRPC (`startFakeGrpcServer`) confere o mesmo header. Casos: gateway manda o token em toda chamada · `UNAUTHENTICATED` não tem retry · no broker de teste, publicar na exchange de outro contexto dá `ACCESS_REFUSED` · usuário Redis não lê chave de outro prefixo |
 | E2E | A plataforma sobe só com os `.env` copiados dos `.env.example`, e os caminhos críticos passam |

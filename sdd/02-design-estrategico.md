@@ -81,7 +81,6 @@ flowchart LR
     ACC -- "account.created (evento)" --> WAL
     WAL -. "gRPC: existe conta? (Gateway + ACL, fallback)" .-> ACC
     WAL -- "wallet.balanceChanged (projeção de saldos)" --> ACC
-    ACC -. "gRPC: saldos (Gateway + ACL, só fallback)" .-> WAL
 
     ORD -- "order.placed" --> WAL
     WAL -- "wallet.fundsReserved / rejected" --> ORD
@@ -101,7 +100,7 @@ Linha cheia = assíncrono (RabbitMQ). Linha tracejada = síncrono interno (gRPC)
 |---|---|---|
 | Todos → consumidores de eventos | **Published Language** | Eventos versionados com JSON Schema: o produtor é dono do schema; cada consumidor guarda cópia, verificada por `scripts/check-schemas` ([princípios §6](01-principios.md#6-c%C3%B3digo-compartilhado-n%C3%A3o-h%C3%A1)). Produtor não conhece consumidor. |
 | `account` → `wallet` (gRPC) | **Customer/Supplier + ACL** | `wallet` traduz a resposta de `account` para o seu conceito (`AccountExists`). Usado só como fallback. |
-| `wallet` → `account` | **Published Language (projeção) + ACL de fallback** | `account` mantém uma projeção local dos saldos a partir de `wallet.balanceChanged`. O gRPC com ACL só é usado quando a projeção ainda não existe. |
+| `wallet` → `account` | **Published Language (projeção)** | `account` mantém uma projeção local dos saldos a partir de `wallet.balanceChanged` e lê só dela. |
 | `order` ↔ `wallet` | **Partnership (saga coreografada)** | Os dois evoluem juntos o fluxo de reserva. Mudança no contrato exige acordo dos dois. |
 | `matching` → `order`, `wallet`, `market-data` | **Open Host (eventos)** | `matching` é a fonte da verdade de negociações. Os demais se conformam. |
 | `market-data` | **Conformist** | Projeta os eventos como vêm; não tem modelo próprio a defender. |
@@ -111,7 +110,7 @@ Linha cheia = assíncrono (RabbitMQ). Linha tracejada = síncrono interno (gRPC)
 1. **Nenhum serviço lê o banco de outro.** Integração só por evento ou gRPC via Gateway + ACL.
 2. **Agregados de contextos diferentes se referenciam por id** (`accountId`, `orderId`), nunca por objeto.
 3. **Nenhum código é compartilhado entre serviços** — nem domínio, nem técnico. Cada serviço tem os próprios RNF em `src/infra/platform/`, escritos à mão (sem gerador nem template), e cópia dos contratos que usa em `src/infra/schemas/`. Ver [princípios §6](01-principios.md#6-c%C3%B3digo-compartilhado-n%C3%A3o-h%C3%A1).
-4. **Chamada síncrona entre serviços (gRPC) é exceção.** Leitura de dado de outro contexto vem de **projeção local** alimentada por evento (CQRS). gRPC só como fallback, quando a projeção ainda não existe, e sempre com Gateway + ACL, timeout, retry com backoff e fallback.
+4. **Chamada síncrona entre serviços (gRPC) é exceção.** Leitura de dado de outro contexto vem de **projeção local** alimentada por evento (CQRS). gRPC só como fallback, quando a falta do dado bloqueia um comando (hoje, só o `wallet` perguntando se a conta existe), e sempre com Gateway + ACL, deadline e retry com backoff.
 5. **Leitura pública nunca espera outro serviço.** Toda consulta é respondida por uma tabela de projeção local (`*_view`) já no formato da resposta. Ver [princípios: CQRS e tabelas de projeção](01-principios.md#cqrs-e-tabelas-de-proje%C3%A7%C3%A3o).
 
 ---
@@ -141,7 +140,7 @@ Se a ordem já tinha sido totalmente executada, `matching` publica `matching.ord
 
 ### 5.4 GetAccount (projeção local, sem chamada síncrona)
 `wallet` publica `wallet.balanceChanged` a cada mudança de saldo. `account` mantém a projeção `account_balance_view` e responde `GetAccount` com **uma consulta local**: dados cadastrais + `assets[]`.
-Se a projeção ainda não tem saldos da conta (conta recém-criada), a corrente de fallback tenta o `wallet` via gRPC (Gateway + ACL) e, se ele estiver fora, responde **degradado** (dados cadastrais + aviso) em vez de falhar.
+Se a projeção ainda não tem saldos da conta (conta recém-criada), responde `assets: []`: a carteira dela ainda está vazia. Não há chamada ao `wallet`.
 
 ---
 

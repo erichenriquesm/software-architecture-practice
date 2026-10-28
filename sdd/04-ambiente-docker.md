@@ -67,7 +67,7 @@ backend/
       docker-compose.test.yml ← testes de integração com infra efêmera e rede isolada
     src/
       domain/                 ← entities/, valueObjects/, events/ (e services/ quando houver)
-      application/            ← usecases/, dtos/, contracts/
+      application/            ← usecases/, contracts/
       infra/
         http/ grpc/ messaging/ database/
         platform/             ← RNF escritos no serviço: resilience/, messaging/, http/, security/
@@ -91,7 +91,7 @@ backend/
 |---|---|---|---|
 | `rabbitmq` | `rabbitmq:4-management-alpine` | 5672, 15672 (painel) | **Único broker** da plataforma. Sobe com o vhost, os usuários por serviço, as permissões e as exchanges, com as senhas do `.env` da infra. Healthcheck `rabbitmq-diagnostics -q check_running` (o `ping` responde antes de o nó terminar de subir). |
 | `edge` | `nginx:alpine` | 8080 | Reverse proxy da API pública REST. Sem regra de negócio; aplica rate limit por IP, limites de conexão e microcache ([rate limiting §2](07-rate-limiting.md#2-camada-1--edge-nginx)). |
-| `redis` | `redis:7-alpine` | 6379 | Sobe com um usuário por serviço, com as senhas do `.env` da infra. Contadores de rate limit e lista de bloqueio, compartilhados entre réplicas. Técnico, como o broker; não guarda dado de domínio ([rate limiting §8](07-rate-limiting.md#8-infraestrutura)). |
+| `redis` | `redis:7-alpine` | 6379 | Sobe com um usuário por serviço, com as senhas do `.env` da infra. Contadores de rate limit, compartilhados entre réplicas. Técnico, como o broker; não guarda dado de domínio ([rate limiting §8](07-rate-limiting.md#8-infraestrutura)). |
 
 Cria a rede **`trading-net`**, que os composes dos serviços declaram de forma idêntica (§2.1).
 
@@ -131,7 +131,7 @@ Cada compose tem, ao lado dele, um **`.env.example` versionado**, com os valores
 | Onde | O que tem |
 |---|---|
 | `backend/infra/.env.example` | Usuário e senha de admin do RabbitMQ; usuário e senha de cada serviço no RabbitMQ e no Redis |
-| `backend/<svc>/.env.example` | Hosts (nomes DNS), portas, nome do banco, usuário e senha do Postgres (um só por serviço), usuário e senha do serviço no RabbitMQ e no Redis, endereço gRPC de quem ele chama, nome e token gRPC do serviço e quem pode chamá-lo (§2.3), nível de log, limites de rate limit |
+| `backend/<svc>/.env.example` | Hosts (nomes DNS), portas, nome do banco, usuário e senha do Postgres (um só por serviço), usuário e senha do serviço no RabbitMQ e no Redis, endereço gRPC de quem ele chama e o token gRPC compartilhado (§2.3), nível de log, limites de rate limit |
 
 Para subir: `cp .env.example .env` em cada pasta. O `.env` está no `.gitignore`; o `.env.example` é a referência e sempre tem todas as variáveis. O compose lê o `.env` com `env_file: .env`.
 
@@ -150,9 +150,7 @@ REDIS_HOST=redis
 REDIS_USER=wallet
 REDIS_PASSWORD=wallet-redis-dev
 ACCOUNT_GRPC_ADDR=account-api:50051
-GRPC_SERVICE_NAME=wallet
-GRPC_SERVICE_TOKEN=wallet-grpc-dev
-GRPC_ALLOWED_CALLERS=account:account-grpc-dev
+ACCOUNT_GRPC_TOKEN=internal-grpc-dev
 LOG_LEVEL=debug
 ```
 
@@ -160,37 +158,32 @@ LOG_LEVEL=debug
 - A senha do serviço no RabbitMQ e no Redis aparece em dois lugares: no `.env` da infra (que cria o usuário) e no `.env` do serviço (que conecta). Os dois `.env.example` usam o mesmo valor.
 - Variável nova no código = variável nova no `.env.example` no mesmo commit.
 
-## 2.3 Quem está chamando o gRPC
+## 2.3 Token do gRPC interno
 
-O gRPC interno confere **qual serviço está chamando** antes de executar o método. O jeito é simples: um token por serviço, no `.env`.
+O gRPC interno confere um **token compartilhado** antes de executar o método. Hoje só o `account` expõe gRPC, e só o `wallet` chama.
 
-**Quem chama** manda dois headers no metadata de toda chamada:
+**Quem chama** manda o token no metadata de toda chamada:
 
 ```
-x-service-name:  wallet
-x-service-token: wallet-grpc-dev
+x-service-token: internal-grpc-dev
 ```
-
-**Quem recebe** tem no `.env` a lista de quem pode chamar e o token de cada um, e confere os dois antes do handler:
 
 ```bash
-# backend/account/.env.example
-GRPC_ALLOWED_CALLERS=wallet:wallet-grpc-dev
+# backend/account/.env.example (server)
+GRPC_TOKEN=internal-grpc-dev
 ```
 ```bash
-# backend/wallet/.env.example
+# backend/wallet/.env.example (client)
 ACCOUNT_GRPC_ADDR=account-api:50051
-GRPC_SERVICE_NAME=wallet
-GRPC_SERVICE_TOKEN=wallet-grpc-dev
+ACCOUNT_GRPC_TOKEN=internal-grpc-dev
 ```
 
 | Situação | Resposta |
 |---|---|
-| Nome e token batem com a lista | Executa o método |
-| Nome fora da lista ou token errado | `UNAUTHENTICATED`, sem retry |
-| Nome certo, mas sem permissão para aquele método | `PERMISSION_DENIED`, sem retry ([autenticação §2](08-autenticacao-entre-servicos.md#2-grpc-interno-token--allowlist)) |
+| Token bate | Executa o método |
+| Sem token ou token errado | `UNAUTHENTICATED`, sem retry ([autenticação §2](08-autenticacao-entre-servicos.md#2-grpc-interno-token-compartilhado)) |
 
-A checagem é um interceptor em `src/infra/platform/security/`, que roda antes de qualquer handler. O token do chamador aparece em dois `.env.example` (o de quem chama e o de quem recebe), com o mesmo valor.
+A checagem é um interceptor em `src/infra/platform/security/` do `account`, que roda antes de qualquer handler. O token aparece nos dois `.env.example`, com o mesmo valor.
 
 O tráfego gRPC não é criptografado: fica dentro da `trading-net`. Fora do ambiente local, o token vem do gerenciador de segredos (§6), e TLS pode ser ligado no canal sem mudar essa checagem.
 
@@ -203,7 +196,7 @@ Todo serviço segue o mesmo molde. Exemplo `backend/wallet/docker/docker-compose
 | Container | Comando (dev) | Depende de |
 |---|---|---|
 | `wallet-db` | `postgres:17-alpine`, volume `wallet-db-data` | — |
-| `wallet-api` | `tsx watch src/infra/api.ts` (REST + gRPC) | `wallet-db` saudável |
+| `wallet-api` | `tsx watch src/infra/api.ts` (REST) | `wallet-db` saudável |
 | `wallet-worker` | `tsx watch src/infra/worker.ts` (consumidores + outbox relay) | `wallet-db` saudável, `rabbitmq` |
 
 Não existe container de migração: as migrações rodam por comando (`make migrate`, §3.3), dentro do container do serviço que já está de pé.
@@ -215,7 +208,7 @@ O `docker-compose.yml` de cada serviço é o de **desenvolvimento** (§3.1) e so
 - **Mesma imagem, processos diferentes.** `api` e `worker` escalam de forma independente, porque o workload é diferente: `api` responde request; `worker` consome fila.
 - **Um Postgres por serviço**, no compose do próprio serviço. Banco `wallet`, schema padrão (`public`). Ninguém mais conecta nele. O próprio Postgres cria banco e usuário no primeiro boot, a partir de `DATABASE_NAME`, `DATABASE_USER` e `DATABASE_PASSWORD` do `.env` (sem script de init).
 - Configuração por variável de ambiente, vinda do `.env` do serviço (§2.2), usando nomes DNS da `trading-net`. Sem IP.
-- Healthcheck em todo container de longa duração (`/health` no `api`; o `worker` também expõe `/health` numa porta interna e responde `503` enquanto está sem conexão com o RabbitMQ). O worker reconecta sozinho ao broker, com backoff, e refaz relay e consumers na conexão nova ([mensageria §4](03-mensageria.md#4-retry-backoff-e-dlq)).
+- Healthcheck em todo container de longa duração (`/health` no `api`; o `worker` também expõe `/health` numa porta interna e responde `503` enquanto está sem conexão com o RabbitMQ). Se a conexão com o broker cair, o worker sai com código 1 e o Docker o reinicia: `api` e `worker` têm `restart: unless-stopped` ([mensageria §4](03-mensageria.md#4-retry-backoff-e-dlq)).
 - Um único usuário por serviço no Postgres: o mesmo migra e acessa os dados ([autenticação §4](08-autenticacao-entre-servicos.md#4-postgres-um-usu%C3%A1rio-por-servi%C3%A7o)).
 
 ### 3.1 Desenvolvimento sem rebuild (Compose Watch)
@@ -236,6 +229,7 @@ services:
     working_dir: /app
     command: sh -c "npm run proto:gen && npx tsx watch src/infra/api.ts"
     env_file: ../.env                   # copied from .env.example (§2.2)
+    restart: unless-stopped             # the worker exits when the broker drops; Docker brings it back
     networks: [trading-net]
     depends_on:
       wallet-db:
@@ -258,7 +252,7 @@ services:
           path: ./Dockerfile
 ```
 
-O `wallet-worker` tem o mesmo bloco `develop.watch`, com `command` apontando para `worker.ts`.
+O `wallet-worker` tem o mesmo bloco `develop.watch` e o mesmo `restart`, com `command` apontando para `worker.ts`.
 
 **O que exige o quê**
 
@@ -305,19 +299,19 @@ docker build -f backend/<svc>/docker/Dockerfile --target runtime backend/<svc>
 | Serviço | `api` (REST) | gRPC interno | `worker` |
 |---|---|---|---|
 | `account` | sim | sim (`AccountService.Exists`) | sim (outbox + projeção de saldos) |
-| `wallet` | sim | sim (`WalletService.GetBalances`) | sim (consumidores + outbox) |
+| `wallet` | sim | não (só cliente do `account`) | sim (consumidores + outbox) |
 | `order` | sim | não | sim |
 | `matching` | **não** (só `/health`) | não | sim (um consumidor ativo por mercado) |
 | `market-data` | sim | não | sim (projeções) |
 
 ### Portas no host (só para depuração local)
 
-Dentro da `trading-net` os containers se acham pelo nome e usam as portas internas (`wallet-api:50051`, `wallet-db:5432`). As portas abaixo são só o mapeamento para o host, para depurar.
+Dentro da `trading-net` os containers se acham pelo nome e usam as portas internas (`account-api:50051`, `wallet-db:5432`). As portas abaixo são só o mapeamento para o host, para depurar.
 
 | Serviço | REST | gRPC | Postgres |
 |---|---|---|---|
 | `account` | 3001 | 50051 | 5433 |
-| `wallet` | 3002 | 50052 | 5434 |
+| `wallet` | 3002 | — | 5434 |
 | `order` | 3003 | — | 5435 |
 | `matching` | 3004 (`/health`) | — | 5436 |
 | `market-data` | 3005 | — | 5437 |
@@ -432,7 +426,7 @@ Testes de integração **não** rodam no build, porque precisam de Postgres/Rabb
 3. **Microcache**: no **CloudFront**, crie um comportamento para `/markets/*` com TTL de 1 s. As demais rotas passam sem cache.
 4. **Ataque volumétrico**: o **Shield Standard** vem com o CloudFront. Avalie o **Shield Advanced** se houver exigência de proteção contratada.
 
-O rate limit **por conta** e o bloqueio escalonado **não** vão para a borda: continuam no plugin de rate limit de cada serviço (`src/infra/platform/http/`), porque a borda enxerga IP e API key, não o `accountId` que vem no corpo.
+O rate limit **por conta** **não** vai para a borda: continuam no plugin de rate limit de cada serviço (`src/infra/platform/http/`), porque a borda enxerga IP e API key, não o `accountId` que vem no corpo.
 
 **Passo 8 — Observabilidade**
 1. Envie os logs de todos os processos para o **CloudWatch Logs**. O `correlationId` continua em toda linha.

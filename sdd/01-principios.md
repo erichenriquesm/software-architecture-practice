@@ -20,9 +20,8 @@ Cada serviço tem três camadas:
       services/            domain services: regra que envolve mais de uma entidade (só quando existir uma)
       errors.ts            erros de domínio
     application/           ← casos de uso: orquestram domínio + contratos.
-      usecases/            um arquivo por caso de uso (signup.ts, getAccount.ts)
-      dtos/                Input/Output com 3+ campos e Views (signupDto.ts)
-      contracts/           interfaces que a infra implementa (repositories, DAOs, gateways, clock…)
+      usecases/            um arquivo por caso de uso, com o Input/Output dele (signup.ts, getAccount.ts)
+      contracts/           interfaces que a infra implementa (repositories, DAOs e suas Views, gateways, clock…)
       …                    o que mais for de aplicação (ex.: calculations/ no market-data)
     infra/                 ← tudo que fala com o mundo de fora. Implementa os contratos.
       http/                rotas REST (Fastify)
@@ -42,7 +41,7 @@ Cada serviço tem três camadas:
     support/               banco e broker efêmeros, fakes de rede, fixtures
 ```
 
-Dentro de `domain/` as pastas não repetem o prefixo: o caminho já diz que são do domínio. O nome do tipo continua completo (`DomainEvent`, `DomainEventDispatcher`), porque fora da pasta ele precisa se distinguir do evento de integração (`Envelope`).
+Dentro de `domain/` as pastas não repetem o prefixo: o caminho já diz que são do domínio. O nome do tipo continua completo (`DomainEvent`), porque fora da pasta ele precisa se distinguir do evento de integração (`Envelope`).
 
 **Pasta nasce com o primeiro arquivo.** Não existe pasta vazia "para quando precisar" (nem `.gitkeep`): quem abre o serviço só vê o que existe.
 
@@ -63,7 +62,7 @@ Os adapters ficam em `infra/`, **agrupados por tecnologia** (`http/`, `grpc/`, `
 
 | Porta (em `application/contracts/`) | Adapter (em `infra/`) | O que esconde |
 |---|---|---|
-| `EventPublisher` | `messaging/OutboxEventPublisher` | Grava o evento na tabela `outbox`, na transação do caso de uso. Quem fala com o RabbitMQ é o **relay**, que é infraestrutura interna do adapter. |
+| `EventPublisher` | `messaging/OutboxEventPublisher` | Converte cada evento de domínio no evento de integração (um `switch` pelo tipo) e grava na tabela `outbox`, na transação do caso de uso. Quem fala com o RabbitMQ é o **relay**, que é infraestrutura interna do adapter. |
 | `TransactionRunner` | `database/KyselyTransactionRunner` | Abre a transação (`db.transaction()`) e a guarda num `AsyncLocalStorage`, de onde o Repository e o `EventPublisher` a pegam. Sem isso, estado e evento não seriam atômicos. |
 | `<X>Repository`, `<X>Dao` | `database/Kysely<X>Repository`, `database/Kysely<X>Dao` | Consulta tipada com Kysely e mapeamento linha ↔ agregado / `<X>View`. |
 | `<X>Gateway` | `grpc/<x>/Grpc<X>Gateway` + `<X>Acl` | Transporte, deadline, retry e tradução do modelo externo. |
@@ -80,8 +79,8 @@ Os adapters ficam em `infra/`, **agrupados por tecnologia** (`http/`, `grpc/`, `
 Regras:
 1. **Um caso de uso não sabe por qual adapter foi chamado.** O mesmo `ReserveFunds` poderia ser chamado por HTTP ou por fila sem mudar uma linha.
 2. **A ACL também existe na entrada:** o evento de outro contexto é traduzido pelo consumer antes de chegar ao caso de uso. Payload externo nunca entra em `application/`.
-3. **A corrente de fallback é um adapter composto** que implementa a mesma porta do gateway. O caso de uso vê uma porta só (`WalletGateway`), não a corrente.
-4. **`src/infra/platform/` tem a base técnica dos adapters** (consumer com retry/DLQ, relay do outbox, cliente gRPC com deadline e retry, `FallbackHandler`), escrita à mão em cada serviço, só com o que aquele serviço usa (§6). Os adapters específicos (mapeamento e ACL) ficam nas pastas de cada tecnologia.
+3. **Fallback é código simples numa função só** (§5.3), sem classe de corrente. O caso de uso vê portas comuns (`WalletRepository`, `AccountGateway`).
+4. **`src/infra/platform/` tem a base técnica dos adapters** (consumer com retry/DLQ, relay do outbox, cliente gRPC com deadline e retry), escrita à mão em cada serviço, só com o que aquele serviço usa (§6). Os adapters específicos (mapeamento e ACL) ficam nas pastas de cada tecnologia.
 5. **Teste:** caso de uso com fakes das portas (unidade); adapter contra a tecnologia real (integração).
 
 ### Quando criar uma porta (interface)
@@ -90,10 +89,12 @@ Porta tem custo. Crie **só** quando houver pelo menos um destes motivos:
 
 | Motivo | Exemplo |
 |---|---|
-| Fronteira com outro sistema | `EventPublisher`, `WalletGateway`, `AccountGateway` |
+| Fronteira com outro sistema | `EventPublisher`, `AccountGateway` |
 | Atomicidade entre adapters de saída | `TransactionRunner` (Repository + outbox na mesma transação) |
 | Persistência de **agregado** (Repository) ou **leitura/relatório** (DAO) | `WalletRepository`, `OrderRepository` · `OrderDao`, `DepthDao` |
 | Tempo / id / aleatoriedade que o teste precisa controlar | `Clock`, `IdGenerator` |
+
+Se **todo** quem usa a classe está na `infra/` (ex.: o store de idempotência, usado só pelo plugin HTTP), não há porta: a `infra` depende da classe concreta. Interface com uma implementação só e sem fake é cerimônia.
 
 ### Repository × DAO
 
@@ -113,7 +114,7 @@ Regras:
 1. **Repository nunca devolve `<X>View`; DAO nunca devolve entidade.** Se a tela precisa de um formato, é DAO.
 2. **Caso de uso de comando não usa DAO** para decidir regra. Decisão de negócio parte do agregado carregado pelo Repository.
 3. **DAO não escreve.** Projeções (como em `market-data`) são gravadas pelo handler do evento através de um **projection writer** na `infra`, não pelo DAO.
-4. Ambos têm **interface em `application/contracts/`** e implementação em `infra/database/`. O `<X>View` que o DAO devolve fica em `application/dtos/`. Assim o caso de uso é testável com fake, e a implementação real é coberta por teste de integração com Postgres.
+4. Ambos têm **interface em `application/contracts/`** e implementação em `infra/database/`. O `<X>View` que o DAO devolve fica no mesmo arquivo da porta do DAO (`orderDao.ts` exporta `OrderView`). Assim o caso de uso é testável com fake, e a implementação real é coberta por teste de integração com Postgres.
 5. **Repositório genérico (`BaseRepository<T>`) é proibido.** Cada repositório expõe só o que o agregado precisa.
 
 ### CQRS e tabelas de projeção
@@ -131,13 +132,13 @@ Dois tipos de projeção:
 
 | Tipo | Quando | Como | Consistência |
 |---|---|---|---|
-| **Síncrona (mesma transação)** | O dado é do **próprio** serviço | O caso de uso salva o agregado e atualiza a `*_view` na mesma transação | Forte, sem atraso |
+| **Síncrona (mesma transação)** | O dado é do **próprio** serviço e a tabela de escrita não serve à leitura | O caso de uso salva o agregado e atualiza a `*_view` na mesma transação. Se a tabela de escrita já serve (como a `order`), o DAO lê dela e não há `*_view` | Forte, sem atraso |
 | **Assíncrona (por evento)** | O dado vem de **outro** serviço | Consumidor do evento atualiza a `*_view` local | Eventual (normalmente milissegundos) |
 
 Regras:
 1. **Projeção é descartável.** Tem de ser possível recriá-la do zero (replay do write model ou dos eventos). Nunca é fonte da verdade.
 2. **Projeção assíncrona é idempotente e tolerante a desordem:** guarda a `version`/`sequence` do evento de origem e ignora atualização mais antiga (*last-write-wins* por versão).
-3. **Projeção assíncrona substitui HTTP síncrono** sempre que um pouco de atraso for aceitável. O Gateway + ACL fica como **fallback** para quando a projeção ainda não existe (ex.: conta recém-criada).
+3. **Projeção assíncrona substitui HTTP síncrono** sempre que um pouco de atraso for aceitável. O Gateway + ACL só entra como **fallback** quando a falta do dado bloqueia um comando (hoje, só o `wallet` perguntando ao `account` se a conta existe). Leitura sem dado na projeção responde vazio.
 4. **Pré-calcule o que é caro.** Agregação feita a cada request (depth por precisão, estatística por período) vira tabela pré-agregada atualizada na escrita.
 5. A resposta que vem de projeção assíncrona pode informar `asOf` (momento da última atualização) quando isso importar para o cliente.
 
@@ -161,12 +162,12 @@ Regras:
 3. **Dinheiro e quantidade nunca em `float`.** Usar biblioteca decimal (ex.: `decimal.js`) no domínio e `numeric(36,8)` no Postgres, escala interna 8 para todos os ativos. **Não arredondar, validar:** preço e quantidade fora dos filtros do mercado (tick, step, valor mínimo, em `infra/schemas/markets.json`, lidos pela porta `MarketCatalog`) são rejeitados. Assim toda conta é exata (ver [Q11](99-decisoes.md#q11)).
 4. **Erros de domínio são classes** (`InsufficientFundsError`, `InvalidOrderTransitionError`), não `new Error('string')`. A `infra` traduz para HTTP status / evento de rejeição.
 5. **Rejeição de negócio não é exceção de infraestrutura.** "Saldo insuficiente" num consumidor vira evento (`wallet.fundsReservationRejected`), não retry.
-6. **Domain events** são emitidos pelo agregado e gravados no **outbox** na mesma transação ([mensageria](03-mensageria.md#5-outbox-e-inbox)).
+6. **Domain events** são emitidos pelo agregado e gravados no **outbox** pelo `EventPublisher`, na mesma transação ([mensageria](03-mensageria.md#5-outbox-e-inbox)).
 7. **Um caso de uso nunca chama outro.** A comunicação entre casos de uso é por evento (§2.1).
 
 ### 2.1 Eventos entre casos de uso (event-driven interno)
 
-Event-driven não vale só entre serviços: vale **dentro** do serviço. Se o caso de uso A importasse o caso de uso B, mudar B quebraria A, e os dois teriam de rodar sempre juntos. Com evento, A só anuncia o fato; quem reage é registrado no composition root, e A não sabe quem é.
+Event-driven não vale só entre serviços: vale **dentro** do serviço. Se o caso de uso A importasse o caso de uso B, mudar B quebraria A, e os dois teriam de rodar sempre juntos. Com evento, A só anuncia o fato e não sabe quem reage.
 
 **Dois tipos de evento**
 
@@ -176,35 +177,16 @@ Event-driven não vale só entre serviços: vale **dentro** do serviço. Se o ca
 | Onde vive | `domain/events/` do serviço | `infra/schemas/published/events/` do serviço produtor; cópias em `infra/schemas/consumed/` dos consumidores (Published Language, §6) |
 | Conteúdo | Pode carregar VOs e detalhes internos | Só primitivos e strings decimais, versionado |
 | Alcance | **Só dentro do serviço** | Outros serviços (e o próprio serviço, quando a reação é em outra transação) |
-| Quem converte | — | `IntegrationEventMapper`, adapter de saída da mensageria |
+| Quem converte | — | `OutboxEventPublisher`, adapter de saída da mensageria |
 
 Evento de domínio **nunca sai cru** do serviço.
 
-**Como a reação acontece**
-
-```
-caso de uso ── agregado.pullEvents() ──► DomainEventDispatcher (porta, em processo)
-                                              │
-              ┌───────────────────────────────┴───────────────────────────────┐
-     reação na MESMA transação                                     reação em OUTRA transação
-     (handler transacional)                                        (outro agregado / outro caso de uso)
-              │                                                               │
-   • projection writer síncrono (ex.: OrderViewProjector)          IntegrationEventMapper → outbox
-   • IntegrationEventMapper → outbox                                 → RabbitMQ → consumer (adapter de entrada)
-   falhou = rollback de tudo                                         → caso de uso B, com inbox, retry e DLQ
-```
-
-| Situação | Mecanismo | Por quê |
-|---|---|---|
-| A reação precisa ser **atômica** com o caso de uso (projeção síncrona, gravar no outbox) | **Handler transacional**, chamado pelo `DomainEventDispatcher` dentro do `TransactionRunner`, antes do `commit` | Ou tudo acontece, ou nada |
-| A reação **altera outro agregado** ou **dispara outro caso de uso** | **Outbox → RabbitMQ → consumer**, mesmo que o consumidor seja o próprio serviço | Uma transação = um agregado (§2, regra 1). Ganha durabilidade, idempotência (inbox) e retry/DLQ de graça |
-
 Regras:
-1. **Handler transacional não chama caso de uso.** Ele é um adapter (projeção, mapeamento para o outbox), não orquestra regra.
-2. **Não existe evento em memória depois do `commit`.** Se o processo cair entre o `commit` e o handler, a reação se perderia. Toda reação fora da transação passa pelo outbox.
-3. **Um adapter de entrada pode chamar o mesmo caso de uso mais de uma vez** (ex.: um trade gera um `ApplyFill` para a ordem de compra e outro para a de venda). Isso é o adapter traduzindo uma mensagem em vários comandos, não um caso de uso chamando outro.
-4. **Agregado acumula eventos** (`recordEvent`) e o caso de uso os entrega com `pullEvents()` ao dispatcher. Nenhum agregado conhece o dispatcher.
-5. **Portas:** `DomainEventDispatcher` (em `application/contracts/`); implementação `InProcessDomainEventDispatcher` (na `infra`), com os handlers registrados no composition root.
+1. **O agregado acumula eventos** (`recordEvent`) e não conhece quem publica.
+2. **O caso de uso entrega os eventos ao `EventPublisher` dentro da transação:** `await this.eventPublisher.publish(order.pullEvents())`. O `OutboxEventPublisher` converte cada um no evento de integração e grava no outbox. Falhou = rollback de tudo.
+3. **Reação em outro agregado (ou outro caso de uso) passa pelo outbox:** outbox → RabbitMQ → consumer → caso de uso B, com inbox, retry e DLQ, mesmo que o consumidor seja o próprio serviço. Uma transação = um agregado (§2, regra 1).
+4. **Não existe evento em memória depois do `commit`.** Se o processo cair entre o `commit` e a reação, ela se perderia.
+5. **Um adapter de entrada pode chamar o mesmo caso de uso mais de uma vez** (ex.: um trade gera um `ApplyFill` para a ordem de compra e outro para a de venda). Isso é o adapter traduzindo uma mensagem em vários comandos, não um caso de uso chamando outro.
 
 ---
 
@@ -218,21 +200,12 @@ Regras:
 - **Imutabilidade por padrão** em VOs, `Input`, `Output` e `View` (`readonly`).
 - **Injeção de dependência pelo construtor**, montada no composition root (`infra/api.ts`, `infra/worker.ts`). Sem container de DI mágico.
 
-### 3.1 Object Calisthenics (pragmático)
+### 3.1 Estilo de código
 
-As 9 regras do Object Calisthenics, com o rigor ajustado por camada. **No `domain/` são obrigatórias**; em `application/` também, salvo as marcadas; na `infra/` valem como orientação, porque adapter lida com formatos externos.
-
-| # | Regra | Como aplicamos | Rigor |
-|---|---|---|---|
-| 1 | **Um nível de indentação por método** | Laço com `if` dentro vira método extraído (ex.: `OrderBook.place` chama `matchAgainst(maker)`) | Obrigatória |
-| 2 | **Não usar `else`** | **Early return** e guard clauses. Variação de comportamento por tipo vira polimorfismo ou mapa, não cadeia de `if/else` | Obrigatória |
-| 3 | **Encapsular primitivos** | VOs: `Quantity`, `Price`, `MarketId`, `AssetId`, `Email`, `Cpf`… Nenhum `string`/`number` solto no domínio | Obrigatória no domínio |
-| 4 | **Coleções de primeira classe** | Coleção com regra vira classe: `Bids`/`Asks` (ordenação preço-tempo), `Balances`, `Reservations` | Obrigatória no domínio |
-| 5 | **Um ponto por linha** (Lei de Demeter) | Peça ao objeto, não navegue nele: `wallet.reserve(...)`, nunca `wallet.balances.get(asset).available.minus(...)`. Encadeamento de *builders* e de `decimal.js` é exceção | Obrigatória |
-| 6 | **Não abreviar** | `quantity`, não `qty`; `accountId`, não `accId`. (As specs usam `qty` em pseudocódigo; o código não.) | Obrigatória |
-| 7 | **Entidades pequenas** | Referência: método ≤ 15 linhas, classe ≤ 150 linhas, arquivo com uma responsabilidade. Passou disso, extraia | Orientação |
-| 8 | **Poucas variáveis de instância** | Agrupe estado relacionado em VOs (`Fill` com `quantity` + `value`, em vez de dois campos soltos). Não há limite rígido de 2: agregados precisam de mais | Orientação |
-| 9 | **Sem getters/setters** | *Tell, don't ask*: o domínio expõe comportamentos (`order.applyFill`), não setters. Leitura só por acessores `readonly` usados pelo mapeamento (Repository, Output), e **nunca** para decidir regra fora do agregado | Obrigatória no domínio |
+- **Guard clauses, sem `else`.** Retorne cedo; variação por tipo vira mapa ou polimorfismo, não cadeia de `if/else`.
+- **VO para primitivo de domínio com regra:** `Quantity`, `Price`, `MarketId`, `AssetId`, `Email`, `Cpf`…
+- **Não abreviar:** `quantity`, não `qty`; `accountId`, não `accId`. (As specs usam `qty` em pseudocódigo; o código não.)
+- **Tell, don't ask no domínio:** o agregado expõe comportamento (`order.applyFill`, `wallet.reserve`), não setters. Ninguém decide regra lendo o estado de fora.
 
 ```ts
 // ✗ else + nested indentation
@@ -253,7 +226,7 @@ applyFill(fill: Fill): void {
 }
 ```
 
-Verificação automática no lint: `max-depth: 1` e `no-else-return` no `domain/` e em `application/`; `id-length` com lista de exceções; `max-lines-per-function` como aviso.
+Verificação automática no lint: `max-depth: 3`, `no-else-return` e `id-length` com lista de exceções.
 
 ### 3.2 Convenções de nomes
 
@@ -262,13 +235,13 @@ Verificação automática no lint: `max-depth: 1` e `no-else-return` no `domain/
 | Item | Convenção | Exemplo |
 |---|---|---|
 | Variáveis, funções, métodos, campos, propriedades | camelCase | `fillQuantity`, `remainingQuantity`, `pullEvents()` |
-| Arquivos | camelCase | `placeOrder.ts`, `placeOrderDto.ts` |
+| Arquivos | camelCase | `placeOrder.ts`, `orderDao.ts` |
 | Tipos, classes, interfaces | PascalCase (convenção do TypeScript para tipos) | `PlaceOrder`, `OrderRepository` |
-| **Entrada de caso de uso** | Até 2 valores: parâmetros diretos (`execute(accountId)`). **3 ou mais: DTO** `<CasoDeUso>Input` | `PlaceOrderInput` |
-| **Saída de caso de uso** | Até 2 valores: retorno direto (`Promise<string>`, `Promise<boolean>`, `Promise<void>`). **3 ou mais: DTO** `<CasoDeUso>Output` | `GetAccountOutput` |
-| **Alias de DTO** | Proibido (`type XInput = Y`). Se o caso de uso recebe um tipo que já existe, usa esse tipo | `execute(change: BalanceChange)` |
+| **Entrada de caso de uso** | Até 2 valores: parâmetros diretos (`execute(accountId)`). **3 ou mais: objeto** `<CasoDeUso>Input`, no arquivo do caso de uso | `PlaceOrderInput` |
+| **Saída de caso de uso** | Até 2 valores: retorno direto (`Promise<string>`, `Promise<boolean>`, `Promise<void>`). **3 ou mais: objeto** `<CasoDeUso>Output`, no arquivo do caso de uso | `GetAccountOutput` |
+| **Alias de Input/Output** | Proibido (`type XInput = Y`). Se o caso de uso recebe um tipo que já existe, usa esse tipo | `execute(change: BalanceChange)` |
 | **Variáveis com entrada e saída** | terminam em `Input` / `Output` | fora do caso de uso: `placeOrderInput`, `placeOrderOutput` · dentro: `input`, `output` |
-| Modelo de leitura do DAO | `<X>View` | `OrderView`, `DepthLevelView` |
+| Modelo de leitura do DAO | `<X>View`, no arquivo da porta do DAO | `OrderView`, `DepthLevelView` |
 | Campos JSON (REST, eventos, gRPC via ts-proto) | camelCase | `{ "orderId": …, "fillPrice": … }` |
 | Tipo de evento de integração | `<contexto>.<fatoEmCamelCase>` | `matching.tradeExecuted`, `wallet.fundsReserved` |
 | Fila | `<consumidor>.<assuntoEmCamelCase>` | `wallet.orderPlaced`, `marketData.trades` |
@@ -289,23 +262,31 @@ Um caso de uso é **um caso específico**: tem exatamente uma entrada e uma saí
 
 ```
 application/
-  usecases/placeOrder.ts    ← classe PlaceOrder implements UseCase<[input: PlaceOrderInput], PlaceOrderOutput>
-  dtos/placeOrderDto.ts     ← PlaceOrderInput e PlaceOrderOutput (5 e 2+ campos: viram DTO)
+  usecases/placeOrder.ts    ← classe PlaceOrder + PlaceOrderInput e PlaceOrderOutput
 ```
 
-**DTO só com 3 campos ou mais.** Abaixo disso o caso de uso recebe e devolve os valores direto: `GetAccount.execute(accountId: string)`, `AccountExists.execute(accountId: string): Promise<boolean>`, `Signup.execute(input: SignupInput): Promise<string>`. Alias de tipo para DTO (`type XInput = Y`) não existe.
+Caso de uso é uma classe simples com `execute`, sem interface base. **Input/Output só com 3 campos ou mais.** Abaixo disso o caso de uso recebe e devolve os valores direto: `GetAccount.execute(accountId: string)`, `AccountExists.execute(accountId: string): Promise<boolean>`, `Signup.execute(input: SignupInput): Promise<string>`. Alias de tipo (`type XInput = Y`) não existe.
 
 ```ts
-export interface UseCase<TParameters extends readonly unknown[], TOutput> {
-  execute(...parameters: TParameters): Promise<TOutput>;
+export interface PlaceOrderInput {
+  readonly accountId: string;
+  readonly marketId: string;
+  readonly side: string;
+  readonly price: string;
+  readonly quantity: string;
 }
 
-export class PlaceOrder implements UseCase<[input: PlaceOrderInput], PlaceOrderOutput> {
+export interface PlaceOrderOutput {
+  readonly orderId: string;
+  readonly status: string;
+}
+
+export class PlaceOrder {
   constructor(
     private readonly orderRepository: OrderRepository,
     private readonly marketCatalog: MarketCatalog,
     private readonly transactionRunner: TransactionRunner,
-    private readonly domainEventDispatcher: DomainEventDispatcher,
+    private readonly eventPublisher: EventPublisher,
     private readonly idGenerator: IdGenerator,
     private readonly clock: Clock,
   ) {}
@@ -316,7 +297,7 @@ export class PlaceOrder implements UseCase<[input: PlaceOrderInput], PlaceOrderO
 
     await this.transactionRunner.run(async () => {
       await this.orderRepository.save(order);
-      await this.domainEventDispatcher.dispatch(order.pullEvents());
+      await this.eventPublisher.publish(order.pullEvents());
     });
 
     const output: PlaceOrderOutput = { orderId: order.id.value, status: order.status };
@@ -330,21 +311,21 @@ const placeOrderOutput = await placeOrder.execute(placeOrderInput);
 reply.status(202).send(placeOrderOutput);
 ```
 
-- O caso de uso **não conhece** o RabbitMQ, a `order_view` nem quem vai reagir ao `OrderPlaced`. Ele só despacha os eventos de domínio (§2.1).
-- Caso de uso de consulta segue a mesma regra: `GetOrders.execute(accountId, status)` (2 valores, sem DTO) → DAO → `GetOrdersOutput` (montado a partir de `OrderView[]`).
+- O caso de uso **não conhece** o RabbitMQ, o outbox nem quem vai reagir ao `OrderPlaced`. Ele só entrega os eventos de domínio ao `EventPublisher` (§2.1).
+- Caso de uso de consulta segue a mesma regra: `GetOrders.execute(accountId, status)` (2 valores, sem objeto de entrada) → DAO → `GetOrdersOutput` (montado a partir de `OrderView[]`).
 
 ---
 
 ## 4. Integração síncrona (Gateway + ACL)
 
-HTTP entre serviços é **exceção**. A primeira opção para ler dado de outro contexto é sempre uma **projeção local** (ver [CQRS e tabelas de projeção](#cqrs-e-tabelas-de-proje%C3%A7%C3%A3o)). HTTP entra só como **fallback**, quando a projeção ainda não tem o dado. Hoje existem dois casos, ambos de fallback: `account → wallet` (saldos de conta recém-criada no `GetAccount`) e `wallet → account` ("a conta existe?" antes de o evento `account.created` chegar).
+HTTP entre serviços é **exceção**. A primeira opção para ler dado de outro contexto é sempre uma **projeção local** (ver [CQRS e tabelas de projeção](#cqrs-e-tabelas-de-proje%C3%A7%C3%A3o)). A chamada síncrona entra só como **fallback**, quando a projeção ainda não tem o dado e isso bloqueia um comando. Hoje existe um caso só: `wallet → account` ("a conta existe?" antes de o evento `account.created` chegar).
 
 Estrutura obrigatória:
 
 ```
-application/contracts/walletGateway.ts   ← porta: fala a língua do MEU contexto
-infra/grpc/wallet/grpcWalletGateway.ts   ← adapter: gRPC, deadline, retry
-infra/grpc/wallet/walletAcl.ts           ← ACL: traduz o modelo DELES → o MEU
+application/contracts/accountGateway.ts    ← porta: fala a língua do MEU contexto
+infra/grpc/account/grpcAccountGateway.ts   ← adapter: gRPC, deadline, retry
+infra/grpc/account/accountAcl.ts           ← ACL: traduz o modelo DELES → o MEU
 ```
 
 - **Gateway** é o **adapter de saída** que implementa a porta: encapsula o transporte (endereço, metadata, deadline, retry, circuit).
@@ -359,7 +340,7 @@ infra/grpc/wallet/walletAcl.ts           ← ACL: traduz o modelo DELES → o ME
 | Passa pelo **edge proxy** | Não sai da rede Docker interna |
 | Legibilidade e facilidade de depurar importam mais que performance | **Latência** e tamanho de payload importam |
 | Pode haver cache HTTP / CDN | O contrato precisa ser **estritamente tipado** e gerado (sem drift) |
-| Endpoints do [objective.md](objective.md) | Fallbacks do Gateway + ACL (`AccountExists`, `GetBalances`) |
+| Endpoints do [objective.md](objective.md) | Fallback do Gateway + ACL (`AccountExists`) |
 
 Decisão para esta plataforma:
 - **API pública: REST.** Exatamente os endpoints do objetivo, roteados pelo edge proxy.
@@ -369,11 +350,11 @@ Decisão para esta plataforma:
 - **Fora do escopo:** gRPC no browser (gRPC-Web) e streaming. Se surgir depth em tempo real para o front, o caminho é WebSocket/SSE no `market-data`, não gRPC.
 
 Regras de gRPC:
-- **Quem chama se identifica sempre**, com nome + token no metadata, e cada método tem a lista de quem pode chamá-lo. Token errado → `UNAUTHENTICATED`; fora da lista → `PERMISSION_DENIED` (os dois são erro permanente, sem retry). Ver [autenticação entre serviços §2](08-autenticacao-entre-servicos.md#2-grpc-interno-token--allowlist).
+- **Toda chamada leva o token compartilhado** no metadata `x-service-token`. Sem token ou token errado → `UNAUTHENTICATED` (erro permanente, sem retry). Ver [autenticação entre serviços §2](08-autenticacao-entre-servicos.md#2-grpc-interno-token-compartilhado).
 - **Deadline sempre** (padrão 500 ms), propagado na chamada.
-- Retry só para `UNAVAILABLE`, `DEADLINE_EXCEEDED` e `RESOURCE_EXHAUSTED`, com o mesmo backoff + jitter do §5.2. Nunca para `INVALID_ARGUMENT`, `NOT_FOUND`, `FAILED_PRECONDITION`, `PERMISSION_DENIED`, `UNAUTHENTICATED`.
+- Retry só para `UNAVAILABLE`, `DEADLINE_EXCEEDED` e `RESOURCE_EXHAUSTED`, com o mesmo backoff + jitter do §5.2. Nunca para `INVALID_ARGUMENT`, `NOT_FOUND`, `FAILED_PRECONDITION`, `UNAUTHENTICATED`.
 - `NOT_FOUND` é resposta válida (ex.: conta não existe), não falha: a ACL traduz para o tipo do meu contexto.
-- Cada serviço que expõe gRPC escuta numa porta própria, separada do REST.
+- O serviço que expõe gRPC (hoje só o `account`) escuta numa porta própria, separada do REST.
 
 ---
 
@@ -389,41 +370,40 @@ Toda chamada de rede tem timeout explícito. Padrão para chamada interna (deadl
 - Mensageria usa retry por filas com atraso; ver [mensageria §4](03-mensageria.md#4-retry-backoff-e-dlq).
 - **Só é seguro repetir operação idempotente.** Toda escrita disparada por mensagem é idempotente via inbox.
 
-### 5.3 Fallback com Chain of Responsibility
-Quando há mais de uma forma de obter um resultado, os elos formam uma corrente: cada elo tenta, e se falhar repassa ao próximo. A base fica em `src/infra/platform/resilience/` de cada serviço.
+### 5.3 Fallback: try/catch explícito
+Quando há mais de uma forma de obter um resultado, os passos ficam em sequência numa função só, com `if` e `try/catch` comuns. Sem corrente de classes.
 
 ```ts
-abstract class FallbackHandler<I, O> {
-  constructor(private readonly next?: FallbackHandler<I, O>) {}
-  protected abstract tryHandle(input: I): Promise<O>;
-  async handle(input: I): Promise<O> {
-    try { return await this.tryHandle(input); }
-    catch (e) { if (!this.next) throw e; return this.next.handle(input); }
-  }
+async loadOrOpen(accountId: AccountId): Promise<Wallet> {
+  const stored = await this.walletRepository.findByAccount(accountId);
+  if (stored) return stored;
+  if (!(await this.accountGateway.exists(accountId.value))) throw new WalletNotFoundError(accountId.value);
+  return Wallet.open(accountId);
 }
 ```
 
-Uso previsto:
+Uso hoje:
 
-| Onde | Corrente |
+| Onde | Passos |
 |---|---|
-| `wallet`: "a conta existe?" | `LocalWalletLookup` → `AccountGrpcGateway` → rejeita (se existir, o caso de uso abre a carteira com `Wallet.open`) |
-| `account`: saldos do `GetAccount` | `BalanceProjectionLookup` (local) → `WalletGrpcGateway` (com retry) → `DegradedBalances` (sem saldos + aviso) |
+| `wallet`: "a conta existe?" | Carteira local → `GrpcAccountGateway` (deadline + retry) → `WalletNotFoundError` (se existir, abre a carteira com `Wallet.open`) |
 
-O último elo é sempre **explícito**: ou degrada com aviso, ou falha com erro claro. Nunca engolir erro silenciosamente.
+O último passo é sempre **explícito**: ou degrada com aviso, ou falha com erro claro. Nunca engolir erro silenciosamente.
 
 ### 5.4 Idempotência
 - Consumidores: tabela **inbox** (`consumer` + `message_key`, ver [mensageria §5](03-mensageria.md#inbox-consumidor)) na mesma transação do efeito.
-- **Todo POST público** aceita o header `Idempotency-Key`, com o comportamento da Stripe: a primeira resposta (status + corpo) é guardada por pelo menos 24 h e devolvida igual nas repetições; a mesma chave com outro corpo → `422`. Implementado em `src/infra/platform/http/` de cada serviço ([Q13](99-decisoes.md#q13)).
+- **POST público que mexe com dinheiro ou ordem** (`/place_order`, `/cancel_order`, depósito e saque do `wallet`) aceita o header `Idempotency-Key`, com o comportamento da Stripe: a primeira resposta (status + corpo) é guardada por pelo menos 24 h e devolvida igual nas repetições; a mesma chave com outro corpo → `422`. Implementado em `src/infra/platform/http/` desses serviços. O `/signup` não precisa: o e-mail único já o torna idempotente ([Q13](99-decisoes.md#q13)).
 
 ### 5.5 Circuit breaker
 Fora do MVP. Os gateways nascem com uma interface que permite adicionar depois sem mexer nos casos de uso.
 
 ### 5.6 Rate limiting
-Toda a API pública tem limite **por tipo de uso**, em duas camadas: no edge (por IP) e no serviço (por conta e por IP, com Redis). Autenticação tem os limites mais apertados, contra brute force. O limitador é a porta `RateLimiter`, com a corrente de fallback Redis → memória. Detalhes em [07-rate-limiting.md](07-rate-limiting.md).
+Toda a API pública tem limite **por tipo de uso**, em duas camadas: no edge (por IP) e no serviço (por conta e por IP, com Redis). Autenticação tem os limites mais apertados, contra brute force. O limitador usa o Redis. Se o Redis falhar, a requisição passa e o serviço registra um aviso (fail-open). Detalhes em [07-rate-limiting.md](07-rate-limiting.md).
 
 ### 5.7 Graceful shutdown
 Ao receber `SIGTERM`: parar de consumir, terminar a mensagem em andamento, dar `ack`, fechar conexões. Mensagem sem `ack` volta para a fila.
+
+Se a conexão com o broker cair, o worker não reconecta sozinho: registra o erro e sai com código 1. O Docker o reinicia (`restart: unless-stopped`), e outbox + inbox garantem que nada se perde.
 
 ---
 
@@ -434,7 +414,7 @@ Ao receber `SIGTERM`: parar de consumir, terminar a mensagem em andamento, dar `
 | O quê | Onde fica | Como chega a um serviço novo |
 |---|---|---|
 | Domínio | `src/domain/` do serviço | Escrito pelo serviço. Nunca é compartilhado: `Quantity` de `wallet` e de `matching` são classes separadas |
-| **Requisitos não funcionais** (retry, timeout, `FallbackHandler`, outbox, inbox, consumer com retry/DLQ, rate limit, `Idempotency-Key`, token gRPC + allowlist) | **`src/infra/platform/`** do serviço: `resilience/`, `messaging/`, `http/`, `security/` | Escrito à mão quando o serviço é construído, só com o que ele usa. O primeiro serviço (`account`) escreve do zero; os seguintes podem copiar do anterior e adaptar |
+| **Requisitos não funcionais** (retry, deadline, outbox, inbox, consumer com retry/DLQ, rate limit, `Idempotency-Key`, token gRPC) | **`src/infra/platform/`** do serviço: `resilience/`, `messaging/`, `http/`, `security/` | Escrito à mão quando o serviço é construído, só com o que ele usa. O primeiro serviço (`account`) escreve do zero; os seguintes podem copiar do anterior e adaptar |
 | Helpers de teste (bancos e broker efêmeros, CA de teste, fakes gRPC/HTTP, fixtures) | **`test/`** do serviço | Do mesmo jeito: escritos no serviço, copiados e adaptados quando outro precisar |
 | Contratos | `src/infra/schemas/` do serviço (ver abaixo) | O produtor é dono; o consumidor guarda cópia |
 | Regras de lint e de arquitetura | `eslint.config.mjs` e `.dependency-cruiser.cjs` do serviço | Escritas no serviço |
@@ -453,7 +433,6 @@ backend/account/src/infra/schemas/
   published/events/account.created.v1.schema.json      ← dono: account
   published/proto/account.proto                        ← dono: account (servidor gRPC)
   consumed/events/wallet.balanceChanged.v1.schema.json ← cópia do que account consome
-  consumed/proto/wallet.proto                          ← cópia do que account chama
   envelope.schema.json                                 ← cópia do envelope comum
   markets.json                                         ← cópia do catálogo, se o serviço usa
 ```

@@ -75,7 +75,7 @@ Entre um passo e outro, outros fluxos enxergam estados intermediários. As contr
 | 1 | account | Cria a conta | **Pivot** | `account.created` |
 | 2 | wallet | Abre a carteira vazia | Repetível | — |
 
-Falha no passo 2: retry → DLQ. Enquanto isso, a corrente de fallback do `wallet` (gRPC `AccountService.Exists`) abre a carteira sob demanda, então o usuário não fica bloqueado ([wallet §7](services/wallet.md#7-integração-síncrona-e-resiliência)).
+Falha no passo 2: retry → DLQ. Enquanto isso, o fallback do `wallet` (gRPC `AccountService.Exists`) abre a carteira sob demanda, então o usuário não fica bloqueado ([wallet §7](services/wallet.md#7-integração-síncrona-e-resiliência)).
 
 ---
 

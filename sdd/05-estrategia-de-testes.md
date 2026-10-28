@@ -25,8 +25,8 @@ Proporção-alvo em número de testes: **~70% unidade · ~20% integração · ~7
   - `OrderBook`: **todos os cenários do objetivo viram teste**. Exemplo obrigatório: compra 10 BTC @ 83.000 no livro + venda 5 BTC @ 82.400 → trade de 5 @ 83.000, `side = sell`, venda sai do livro, compra fica com 5. Mais: preço do maker, prioridade por tempo no mesmo preço, execução parcial em cascata, sem match quando `bid < ask`.
   - `Wallet`: reserva, liquidação com devolução da diferença de preço, saque acima do disponível, comutatividade de `settle` × `release`.
   - `Order`: transições válidas e inválidas, preço médio de fill, status derivado com eventos fora de ordem.
-- **Casos de uso**: com **fakes em memória** dos Repositories, DAOs, publisher e gateways. Verificam orquestração: carregou, chamou o domínio, salvou, publicou o evento certo.
-- **Funções puras**: agregação de depth por precisão, cálculo de spread, backoff com jitter, `FallbackHandler`.
+- **Casos de uso**: com **fakes em memória** dos Repositories, DAOs, gateways e do `EventPublisher` (`test/fakes/recordingEventPublisher.ts`, que guarda os eventos recebidos). Verificam orquestração: carregou, chamou o domínio, salvou, publicou o evento certo.
+- **Funções puras**: agregação de depth por precisão, cálculo de spread, backoff com jitter.
 - **ACLs**: tradução de mensagem externa → tipo do contexto, incluindo resposta fora do contrato.
 
 ### Integração — um componente real por vez
@@ -35,8 +35,8 @@ Proporção-alvo em número de testes: **~70% unidade · ~20% integração · ~7
 - **Projection writers**: idempotência e *last-write-wins* (aplicar o mesmo evento duas vezes; aplicar versão antiga depois da nova).
 - **Outbox relay** × RabbitMQ: publicação em ordem e com confirms.
 - **Consumidor** × RabbitMQ: inbox (duplicata ignorada), retry para a fila de atraso, DLQ para erro permanente.
-- **Gateway gRPC** × **servidor gRPC fake** do outro serviço (§3.2): deadline, retry só em código transitório, fallback acionado.
-- **Caso de uso que depende de outro serviço** (ex.: `Deposit` com a corrente "a conta existe?") × Postgres real + **fake** do outro serviço. Nunca o serviço de verdade.
+- **Gateway gRPC** × **servidor gRPC fake** do outro serviço (§3.2): deadline, retry só em código transitório, token enviado.
+- **Caso de uso que depende de outro serviço** (ex.: `Deposit` com o fallback "a conta existe?") × Postgres real + **fake** do outro serviço. Nunca o serviço de verdade.
 - **Migrações**: rodam do zero num banco vazio.
 
 **Não** retestar regra de negócio aqui.
@@ -82,7 +82,7 @@ Quando o código sob teste depende de outro serviço, o teste sobe um **fake de 
 
 | Dependência | Fake | Fornecido por |
 |---|---|---|
-| gRPC interno (`AccountService`, `WalletService`) | `startFakeGrpcServer(proto, handlers)`: servidor `@grpc/grpc-js` na porta `0` (porta livre aleatória), gerado do mesmo `.proto` que o serviço tem em `src/infra/schemas/`, e que confere nome e token do chamador como o servidor real ([autenticação §7](08-autenticacao-entre-servicos.md#7-testes)) | `test/support/` do serviço |
+| gRPC interno (`AccountService`) | `startFakeGrpcServer(proto, handlers)`: servidor `@grpc/grpc-js` na porta `0` (porta livre aleatória), gerado do mesmo `.proto` que o serviço tem em `src/infra/schemas/`, e que confere o token como o servidor real ([autenticação §7](08-autenticacao-entre-servicos.md#7-testes)) | `test/support/` do serviço |
 | HTTP externo (se surgir: provedor de identidade, gateway de pagamento…) | `startFakeHttpServer(routes)`: instância Fastify na porta `0` | `test/support/` do serviço |
 
 O fake é **programável por cenário**, e cada cenário é determinístico:
@@ -97,7 +97,7 @@ const accountService = await startFakeGrpcServer(accountProto, {
 });
 ```
 
-Cenários que todo gateway testa: resposta válida · `NOT_FOUND` · `UNAVAILABLE` N vezes e depois sucesso (retry) · demora acima do deadline (timeout) · resposta fora do contrato (a ACL rejeita) · fora do ar de vez (fallback).
+Cenários que todo gateway testa: resposta válida · `NOT_FOUND` · `UNAVAILABLE` N vezes e depois sucesso (retry) · demora acima do deadline (timeout) · resposta fora do contrato (a ACL rejeita) · fora do ar de vez (erro claro).
 
 **O fake não pode mentir sobre o contrato:** as respostas dele são validadas contra o mesmo `.proto`/JSON Schema que o serviço real implementa, e os testes de contrato do serviço real (§2, Contrato) garantem que ele responde no mesmo formato. Se o contrato mudar, o fake e o real quebram juntos.
 

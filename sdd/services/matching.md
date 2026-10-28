@@ -60,16 +60,16 @@ Isso implementa as regras do objetivo:
 
 ## 4. Casos de uso
 
-Regra de DTO ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram DTO.
+Regra de Input/Output ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram objeto, no arquivo do caso de uso.
 
 | Caso de uso | Assinatura | Gatilho | Passos |
 |---|---|---|---|
 | `ExecuteOrder` | `execute(input: ExecuteOrderInput): void` | `order.accepted.<marketId>` | Carrega o livro do mercado. Se o `orderId` já está no livro → ignora (idempotência de domínio, além da inbox). `book.place(entry)` → numa transação: grava entradas alteradas e removidas, trades, `sequence`, outbox (`tradeExecuted` × N + `orderRemoved` por STP + `bookSnapshot`). |
 | `RemoveOrder` | `execute(orderId, marketId): void` | `order.cancelRequested.<marketId>` | `book.cancel` → `matching.orderRemoved(CANCELLED)` + `bookSnapshot`, ou `matching.orderCancelRejected(NOT_IN_BOOK)`. |
 
-`ExecuteOrderInput`: `orderId, accountId, marketId, side, quantity, price, acceptedAt` (o payload do `order.accepted`).
+`ExecuteOrderInput` (em `executeOrder.ts`): `orderId, accountId, marketId, side, quantity, price, acceptedAt` (o payload do `order.accepted`).
 
-Contratos (interfaces em `application/contracts/`): `OrderBookRepository` (`load(marketId)` devolve o livro, vazio se ainda não existe; `save` com checagem de `sequence`), `TransactionRunner`, `DomainEventDispatcher`, `IdGenerator` (id dos trades), `Clock`. Não há DAO: este serviço não atende consultas.
+Contratos (interfaces em `application/contracts/`): `OrderBookRepository` (`load(marketId)` devolve o livro, vazio se ainda não existe; `save` com checagem de `sequence`), `TransactionRunner`, `EventPublisher`, `IdGenerator` (id dos trades), `Clock`. Não há DAO: este serviço não atende consultas.
 
 Sagas em que este serviço participa: **S2** (passo repetível, depois do pivot), **S3** (dono: o trade é o pivot) e **S4** (pivot: remover do livro). Ver [06-sagas.md](../06-sagas.md).
 
@@ -156,14 +156,13 @@ backend/matching/
       events/                       domainEvent.ts  tradeExecuted.ts  orderRemoved.ts  orderCancelRejected.ts  bookChanged.ts
       errors.ts
     application/
-      usecases/                     executeOrder.ts  removeOrder.ts  useCase.ts  bookStore.ts (carregar e salvar+despachar)
-      dtos/                         executeOrderDto.ts
-      contracts/                    orderBookRepository.ts  transactionRunner.ts  domainEventDispatcher.ts  idGenerator.ts  clock.ts
+      usecases/                     executeOrder.ts  removeOrder.ts  bookStore.ts (carregar e salvar+publicar)
+      contracts/                    orderBookRepository.ts  transactionRunner.ts  eventPublisher.ts  idGenerator.ts  clock.ts
     infra/
       http/health.ts                só /health (não há API pública)
       messaging/
         consumers/marketOrdersConsumer.ts   um por mercado; retry em processo; consumedEvent.ts
-        matchingIntegrationEvents.ts        domain event → outbox
+        outboxEventPublisher.ts             domain event → outbox
         historyRepublisher.ts               republish do histórico para rebuild de projeção
       database/                     kyselyOrderBookRepository.ts  kyselyTransactionRunner.ts  postgres.ts  database.ts
                                     migrator.ts  migrationFiles.ts
@@ -184,7 +183,7 @@ backend/matching/
 
 Os originais de `matching.tradeExecuted`, `matching.orderRemoved` e `matching.orderCancelRejected` são **os mesmos bytes** das cópias que `order` e `wallet` já guardam (escritas por eles a partir da [mensageria §3](../03-mensageria.md#3-cat%C3%A1logo-de-eventos-v1)); o `matching` passa a ser o dono.
 
-O evento de domínio `BookChanged` vira o evento de integração `matching.bookSnapshot` no `matchingIntegrationEvents`. O `matching` não tem `api.ts`: o `/health` sobe junto com o `worker`.
+O evento de domínio `BookChanged` vira o evento de integração `matching.bookSnapshot` no `OutboxEventPublisher`. O `matching` não tem `api.ts`: o `/health` sobe junto com o `worker`.
 
 ### `.env.example`
 

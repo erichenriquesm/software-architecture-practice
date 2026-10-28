@@ -62,7 +62,7 @@ Decimais saem como string com 8 casas (`"84000.00000000"`), como no resto da pla
 
 ## 6. Casos de uso
 
-Regra de DTO ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram DTO. Quando o caso de uso devolve exatamente o `<X>View` do DAO, ele usa esse tipo (sem alias).
+Regra de Input/Output ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de-nomes)): até 2 valores entram e saem direto; 3 ou mais viram objeto, no arquivo do caso de uso. Quando o caso de uso devolve exatamente o `<X>View` do DAO, ele usa esse tipo (sem alias).
 
 | Caso de uso | Assinatura | Adapter de entrada | Passos |
 |---|---|---|---|
@@ -70,9 +70,9 @@ Regra de DTO ([princípios §3.2](../01-principios.md#32-conven%C3%A7%C3%B5es-de
 | `GetTrades` | `execute(input: GetTradesInput): TradeView[]` | REST `GET /markets/:marketId/trades` | Mercado (`404`) → `limit` de 1 a 500, padrão 50 (`422`) → `before` é data válida (`422`) → `TradeDao.listRecent`, mais recentes primeiro. |
 | `GetMarket` | `execute(input: GetMarketInput): GetMarketOutput` | REST `GET /markets/:marketId` | Mercado (`404`) → `marketPeriod` → `splitByMinute` → `MarketStatsDao.candleStats`/`tradeStats` por pedaço → `combineStats` → `topOfBook` → `spread` → `asOf`. |
 
-DTOs (`application/dtos/`):
+Inputs e Outputs ficam no arquivo do caso de uso; cada `<X>View` fica no arquivo da porta do DAO que o devolve (`depthDao.ts`, `tradeDao.ts`, `marketStatsDao.ts`):
 
-| DTO | Campos | Usado por |
+| Tipo | Campos | Usado por |
 |---|---|---|
 | `GetTradesInput` | `marketId, limit?, before?` | `GetTrades` |
 | `GetMarketInput` | `marketId, startDate?, endDate?` | `GetMarket` |
@@ -97,7 +97,7 @@ Funções puras (`application/calculations/`): `priceBucket`, `aggregateDepth`, 
 Erros: `404 marketNotFound` mercado desconhecido · `422 invalidQuery` parâmetro fora da regra (faixa de `precision` ou `limit`, data inválida, período invertido) · `422 invalidRequest` parâmetro do tipo errado, barrado pelo schema da rota (`precision=alta`). Parâmetro desconhecido na query é ignorado.
 `asOf` informa até quando a projeção está atualizada (dado com consistência eventual).
 
-**Rate limit** ([07 §3.1](../07-rate-limiting.md#31-grupos-e-limites)): grupo `publicRead`, por IP, `RATE_LIMITS_PUBLIC_READ_PER_IP=1200/1m` de peso. Peso: `GET /markets/:id` = 1 · `/trades` = 2 até 50 itens, 5 acima · `/depth` = 2. Chaves no Redis com o prefixo `marketData:` (o usuário `marketData` só enxerga essas chaves). Sem limite por conta: as rotas são públicas.
+**Rate limit** ([07 §3.1](../07-rate-limiting.md#31-grupos-e-limites)): grupo `publicRead`, por IP, `RATE_LIMITS_PUBLIC_READ_PER_IP=1200/1m` de peso. Peso: `GET /markets/:id` = 1 · `/trades` = 2 até 50 itens, 5 acima · `/depth` = 2. Chaves no Redis com o prefixo `marketData:` (o usuário `marketData` só enxerga essas chaves). Sem limite por conta: as rotas são públicas. Se o Redis falhar, a requisição passa e o aviso vai para o log ([07 §5](../07-rate-limiting.md#5-resili%C3%AAncia-do-pr%C3%B3prio-limitador)).
 
 O `market-data` não tem `POST`, por isso não tem `Idempotency-Key` nem a tabela `idempotency_key`.
 
@@ -190,9 +190,9 @@ backend/market-data/
   src/
     (sem domain/: não há invariante a proteger, §3)
     application/
-      usecases/                     getDepth.ts  getTrades.ts  getMarket.ts  useCase.ts
-      dtos/                         getTradesDto.ts  getMarketDto.ts  depthView.ts  tradeView.ts  marketStatsView.ts
-      contracts/                    depthDao.ts  tradeDao.ts  marketStatsDao.ts  marketCatalog.ts  clock.ts
+      usecases/                     getDepth.ts  getTrades.ts (+ GetTradesInput)  getMarket.ts (+ GetMarketInput/Output)
+      contracts/                    depthDao.ts (+ DepthView)  tradeDao.ts (+ TradeView)  marketStatsDao.ts (+ TradeStatsView, TopOfBookView)
+                                    marketCatalog.ts  clock.ts
       calculations/                 priceBucket.ts  aggregateDepth.ts  spread.ts  marketPeriod.ts  combineStats.ts   ← funções puras
       errors.ts                     MarketNotFoundError  InvalidQueryError
     infra/
@@ -206,7 +206,7 @@ backend/market-data/
                                     kyselyTransactionRunner.ts  postgres.ts  database.ts  migrator.ts  migrationFiles.ts
         migrations/                 inbox, trade_view, candle_1m_view, book_state_view, depth_view
       catalog/jsonMarketCatalog.ts  lê e valida o markets.json na subida; faixa de precision por mercado
-      platform/                     copiados do order (Consumer com units, opção inbox: false, reconexão ao RabbitMQ, rate limit); sem gRPC, sem outbox, sem idempotência
+      platform/                     copiados do order (Consumer com units, opção inbox: false, rate limit); sem gRPC, sem outbox, sem idempotência
       schemas/
         consumed/events/            matching.tradeExecuted.v1  matching.bookSnapshot.v1
         envelope.schema.json  markets.json  markets.schema.json

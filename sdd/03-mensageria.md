@@ -144,7 +144,7 @@ Backoff: **1s → 5s → 25s** (base 5). TTL por fila não permite jitter por me
 - Reprocessamento manual: script `npm run dlq:replay -- <q>` (container), que republica na fila original zerando `x-attempt`.
 
 ### Conexão com o broker
-Reconexão com backoff exponencial + jitter (`base=500ms`, `cap=30s`, sem limite de tentativas). Enquanto desconectado, o outbox acumula; nada se perde.
+O worker conecta uma vez. Se a conexão cair (`close` ou `error`), ele registra o erro e sai com código 1; o Docker o reinicia (`restart: unless-stopped`). Até lá, o `/health` mostra o RabbitMQ fora e o outbox acumula. Outbox + inbox fazem o reinício sem perda nem duplicação.
 
 ---
 
