@@ -279,6 +279,6 @@ Fila comum apaga a mensagem depois do `ack`, então não serve para reconstruir 
 | Binding | `matching.events` → `matching.#` |
 | Retenção | `x-max-age: 30D` |
 | Uso normal | Nenhum: as projeções são alimentadas pelas filas `marketData.trades` e `marketData.book` |
-| Uso no rebuild | `npm run projections:rebuild` apaga as `*_view` e consome o stream com `x-stream-offset: first` até alcançar o fim |
+| Uso no rebuild | `make projections-rebuild` no `market-data` (`npm run projections:rebuild` no `market-data-worker`) apaga as `*_view` e consome o stream com `x-stream-offset: first` até alcançar o fim, que o consumidor reconhece por ficar ocioso (`REBUILD_IDLE_TIMEOUT`): pela AMQP 0.9.1 ele não sabe qual é o último offset |
 
 Reler é seguro porque as projeções são idempotentes (`trade_id`) e *last-write-wins* (`sequence`). Continua valendo a regra do §1: quem precisa do replay (o consumidor) declara o stream; o `matching` não sabe que ele existe.

@@ -94,7 +94,7 @@ Funções puras (`application/calculations/`): `priceBucket`, `aggregateDepth`, 
 | GET | `/markets/:marketId/trades` | `?limit=50&before=<executedAt>` | `200 [{ tradeId, buyOrderId, sellOrderId, side, quantity, price, timestamp }]` — mais recentes primeiro; `before` é exclusivo |
 | GET | `/markets/:marketId` | `?startDate&endDate` (ISO 8601) | `200 { spread, min, max, volume, asOf }` |
 
-Erros: `404 marketNotFound` mercado desconhecido · `422 invalidQuery` parâmetro inválido (fora da faixa ou do tipo).
+Erros: `404 marketNotFound` mercado desconhecido · `422 invalidQuery` parâmetro fora da regra (faixa de `precision` ou `limit`, data inválida, período invertido) · `422 invalidRequest` parâmetro do tipo errado, barrado pelo schema da rota (`precision=alta`). Parâmetro desconhecido na query é ignorado.
 `asOf` informa até quando a projeção está atualizada (dado com consistência eventual).
 
 **Rate limit** ([07 §3.1](../07-rate-limiting.md#31-grupos-e-limites)): grupo `publicRead`, por IP, `RATE_LIMITS_PUBLIC_READ_PER_IP=1200/1m` de peso. Peso: `GET /markets/:id` = 1 · `/trades` = 2 até 50 itens, 5 acima · `/depth` = 2. Chaves no Redis com o prefixo `marketData:` (o usuário `marketData` só enxerga essas chaves). Sem limite por conta: as rotas são públicas.
