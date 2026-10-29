@@ -348,7 +348,7 @@ O que é só do backend fica no `Makefile` de `backend/` (a plataforma inteira) 
 | `make env` | Só cria os `.env` que ainda não existem (nunca sobrescreve) |
 | `make deps` | Instala o `node_modules` e gera o código gRPC de cada serviço **na sua máquina**, via container, só para o editor enxergar tipos e imports. Rode de novo quando mudar `package.json` ou um `.proto` |
 
-Um serviço sozinho continua possível, com a infra de pé: `docker compose -f backend/<svc>/docker/docker-compose.yml --env-file backend/<svc>/.env up --watch`.
+Um serviço sozinho: `make up` dentro de `backend/<svc>/` sobe os containers dele mais o RabbitMQ e o Redis (sem os outros serviços nem o edge, então REST e gRPC ficam direto nas portas do host), espera ficarem saudáveis e roda as migrações dele; `make down` remove só esses containers, e `make watch` / `make ps` / `make logs` valem só para ele. Chamadas gRPC a um serviço que não está de pé falham como falhariam em produção (ver o retry e o circuit breaker em [princípios](01-principios.md)).
 
 ## 5. Dockerfile de cada serviço
 
