@@ -16,14 +16,14 @@
 | `matching` | [software-architecture-practice-matching](https://github.com/erichenriquesm/software-architecture-practice-matching) |
 | `market-data` | [software-architecture-practice-market-data](https://github.com/erichenriquesm/software-architecture-practice-market-data) |
 
-A lista fica em `backend/repos.txt` (`<pasta> <url>` por linha). `make clone` (em `backend/`) clona em `backend/<serviço>/` os que ainda não estão lá; `make pull` atualiza todos. Essas pastas estão no `.gitignore` do guarda-chuva: cada uma é o clone do repositório do serviço, com o próprio `git`. Não se usa git submodule (versão presa, `submodule update` esquecido e "detached HEAD" no dia a dia); o `make clone` dá o mesmo resultado sem esse custo.
+A lista fica em `repos.txt`, na raiz (`<pasta> <url>` por linha, com a pasta relativa à raiz). `make clone` (na raiz) clona em `backend/<serviço>/` os serviços e em `frontend/` o front que ainda não estão lá; `make pull` atualiza todos. Essas pastas estão no `.gitignore` do guarda-chuva: cada uma é o clone do repositório do serviço, com o próprio `git`. Não se usa git submodule (versão presa, `submodule update` esquecido e "detached HEAD" no dia a dia); o `make clone` dá o mesmo resultado sem esse custo.
 
 Clonar tudo do zero:
 ```bash
 git clone https://github.com/erichenriquesm/software-architecture-practice.git
 ```
 ```bash
-cd software-architecture-practice/backend && make clone && make up
+cd software-architecture-practice && make clone && make up
 ```
 
 ```
@@ -32,17 +32,18 @@ cd software-architecture-practice/backend && make clone && make up
   frontend/    ← cliente web, repositório próprio clonado aqui ([frontend](09-frontend.md))
   sdd/         ← specs
   README.md    ← o que é a plataforma, os repositórios e como subir
+  Makefile     ← make clone / pull / up / down / ps / logs / test / e2e / check / deps: tudo de uma vez, chamando os Makefile de backend/ e frontend/ (§4)
+  repos.txt    ← os repositórios dos serviços e do front (§0)
   .gitignore
 ```
 
-Nada de código, `package.json` ou `Dockerfile` na raiz. O que existe hoje na raiz é experimento e é apagado no início da fase 0 ([Q15](99-decisoes.md#q15)). Cada pasta de topo é independente. Dentro de `backend/`, cada serviço tem o próprio `package.json`; não há workspace nem `package.json` na raiz do `backend/`.
+Nada de código, `package.json` ou `Dockerfile` na raiz; só o `Makefile` que orquestra as pastas e a lista de repositórios. O que existe hoje na raiz é experimento e é apagado no início da fase 0 ([Q15](99-decisoes.md#q15)). Cada pasta de topo é independente. Dentro de `backend/`, cada serviço tem o próprio `package.json`; não há workspace nem `package.json` na raiz do `backend/`.
 
 ## 1. Estrutura do `backend/`
 
 ```
 backend/
-  Makefile                    ← make clone / pull / up / watch / migrate / ps / logs / down / test / check / projections-rebuild (§4)
-  repos.txt                   ← os repositórios dos serviços (§0)
+  Makefile                    ← make up / watch / infra / migrate / ps / logs / down / test / e2e / check / projections-rebuild: só o backend (§4)
   docker-compose.yml          ← sobe a plataforma inteira em ambiente local (include de todos os composes)
   infra/                      ← infraestrutura compartilhada; nenhum código de serviço
     docker-compose.yml        ← RabbitMQ único + Redis + edge proxy + rede trading-net
@@ -53,7 +54,7 @@ backend/
     schemas/                  ← originais sem dono: envelope.schema.json, markets.json (+ schema)
   scripts/                    ← só biblioteca padrão do Node, rodados em container
     check-schemas.ts        ← compara cada cópia de contrato com o original do dono
-  account/                    ← clone do repositório do serviço (make clone); projeto STANDALONE
+  account/                    ← clone do repositório do serviço (make clone na raiz); projeto STANDALONE
     package.json  package-lock.json
     tsconfig.json  eslint.config.mjs  .dependency-cruiser.cjs  vitest.config.ts
     Makefile                  ← migrações estilo Laravel (§3.3), testes, deps
@@ -320,11 +321,21 @@ Dentro da `trading-net` os containers se acham pelo nome e usam as portas intern
 
 ## 4. Como subir
 
-Tudo pelo `Makefile` de `backend/` (a plataforma inteira) e pelo `Makefile` de cada serviço (as migrações dele, §3.3). Rode dentro de `backend/`:
+O dia a dia é o `Makefile` da **raiz**, que chama os de `backend/` e `frontend/`:
+
+| Comando (na raiz) | O que faz |
+|---|---|
+| `make clone` · `make pull` | Clona os repositórios que faltam (serviços em `backend/<serviço>/`, front em `frontend/`) · atualiza todos (`git pull --ff-only`) (§0) |
+| `make up` · `make down` | Sobe o backend (o `make up` abaixo) e depois o front em `http://localhost:5173` · derruba os dois (os volumes ficam) |
+| `make ps` · `make logs [s=<container>]` | Containers do backend e do front · logs do backend (`s=frontend` para os do front) |
+| `make test` | `make test` do backend, `make test-unit` do front e o layout da raiz. Não precisa da plataforma de pé |
+| `make e2e` | `make e2e` do backend e depois o Playwright do front ([frontend](09-frontend.md)) |
+| `make check` · `make deps` | Cópias de contrato e layout da raiz · `node_modules` de todos os serviços e do front, para o editor |
+
+O que é só do backend fica no `Makefile` de `backend/` (a plataforma inteira) e no de cada serviço (as migrações dele, §3.3). Dentro de `backend/`:
 
 | Comando | O que faz |
 |---|---|
-| `make clone` · `make pull` | Clona os repositórios dos serviços que faltam em `backend/<serviço>/` · atualiza todos (`git pull --ff-only`) (§0) |
 | `make up` | Cria os `.env` que faltam a partir dos `.env.example`, instala as dependências do editor dos serviços que ainda não têm `node_modules` (como `make deps`), builda, sobe infra + serviços, espera ficarem saudáveis e roda `make migrate` em cada serviço |
 | `make watch` | O mesmo, em primeiro plano com Compose Watch (§3.1): alterar código não exige rebuild |
 | `make infra` | Sobe só a infra compartilhada (RabbitMQ, Redis, edge) |
@@ -333,7 +344,7 @@ Tudo pelo `Makefile` de `backend/` (a plataforma inteira) e pelo `Makefile` de c
 | `make logs` · `make logs s=account-api` | Segue os logs de tudo ou de um container |
 | `make down` | Para tudo (os volumes ficam) |
 | `make test` | Todos os tipos de teste de todos os serviços (checagens estáticas, unidade, integração e contrato) e depois `make check`. Não precisa da plataforma de pé |
-| `make check` | Confere as cópias de contrato e o layout da raiz |
+| `make check` | Confere as cópias de contrato (o layout da raiz fica no `make check` da raiz) |
 | `make env` | Só cria os `.env` que ainda não existem (nunca sobrescreve) |
 | `make deps` | Instala o `node_modules` e gera o código gRPC de cada serviço **na sua máquina**, via container, só para o editor enxergar tipos e imports. Rode de novo quando mudar `package.json` ou um `.proto` |
 

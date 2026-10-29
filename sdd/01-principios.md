@@ -409,7 +409,7 @@ Se a conexão com o broker cair, o worker não reconecta sozinho: registra o err
 
 ## 6. Código compartilhado (não há)
 
-**Nenhum código é compartilhado entre serviços.** Cada serviço é um **repositório próprio** ([ambiente §0](04-ambiente-docker.md#0-reposit%C3%B3rios-e-layout-da-raiz)), clonado em `backend/<svc>/` pelo `make clone` do repositório guarda-chuva.
+**Nenhum código é compartilhado entre serviços.** Cada serviço é um **repositório próprio** ([ambiente §0](04-ambiente-docker.md#0-reposit%C3%B3rios-e-layout-da-raiz)), clonado em `backend/<svc>/` pelo `make clone` da raiz do repositório guarda-chuva.
 
 | O quê | Onde fica | Como chega a um serviço novo |
 |---|---|---|

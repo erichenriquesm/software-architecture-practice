@@ -43,20 +43,20 @@ Só precisa de Docker e `make`.
 
 ```bash
 git clone https://github.com/erichenriquesm/software-architecture-practice.git
-cd software-architecture-practice/backend
+cd software-architecture-practice
 make clone   # clona os cinco serviços em backend/<serviço>/ e o front em frontend/
-make up      # cria os .env, sobe infra + serviços e roda as migrações
-cd ../frontend && make up   # o cliente web em http://localhost:5173
+make up      # cria os .env, sobe infra + serviços, roda as migrações e sobe o front
 ```
 
 O app fica em `http://localhost:5173`; a API pública, em `http://127.0.0.1:8080` (edge). O painel do RabbitMQ fica em `http://127.0.0.1:15672` (`admin` / `admin-rabbitmq-dev`).
 
-| Comando (em `backend/`) | O que faz |
+| Comando (na raiz) | O que faz |
 |---|---|
 | `make clone` · `make pull` | clona os serviços e o front que faltam · atualiza todos |
-| `make up` · `make down` · `make ps` · `make logs` | sobe, derruba, lista e acompanha a plataforma |
-| `make test` | todos os testes de todos os serviços, mais a checagem de contratos |
-| `make check` | confere se as cópias de contrato de cada serviço batem com o original do dono |
+| `make up` · `make down` · `make ps` · `make logs` | sobe, derruba, lista e acompanha backend e front juntos |
+| `make test` | todos os testes de todos os serviços, a checagem de contratos e os testes de unidade do front |
+| `make e2e` | sobe tudo e roda o E2E do backend (pelo edge) e o do front (Playwright) |
+| `make check` | confere se as cópias de contrato de cada serviço batem com o original do dono, e o layout da raiz |
 
 ## O que tem aqui
 
@@ -65,4 +65,5 @@ O app fica em `http://localhost:5173`; a API pública, em `http://127.0.0.1:8080
 | [`sdd/`](sdd/README.md) | A especificação: princípios, design estratégico, mensageria, ambiente, testes, sagas, rate limiting, autenticação e a spec de cada serviço |
 | `backend/infra/` | RabbitMQ, Redis e o edge (nginx), mais os contratos sem dono (envelope e catálogo de mercados) |
 | `backend/scripts/` | `check-schemas.ts` |
-| `backend/Makefile`, `backend/docker-compose.yml`, `backend/repos.txt` | Comandos e compose da plataforma inteira, e a lista dos repositórios |
+| `Makefile`, `repos.txt` | Os comandos de tudo (chamam os `Makefile` de `backend/` e `frontend/`) e a lista dos repositórios |
+| `backend/Makefile`, `backend/docker-compose.yml` | Comandos só do backend (migrações, infra, rebuild das projeções) e o compose da plataforma |

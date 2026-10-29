@@ -129,7 +129,7 @@ Cenários que todo gateway testa: resposta válida · `NOT_FOUND` · `UNAVAILABL
 
 Tudo em container.
 
-**Um comando para tudo:** `make test` dentro de `backend/<svc>/` (um serviço) ou de `backend/` (todos os serviços e a checagem de contratos). Em cada serviço:
+**Um comando para tudo:** `make test` na raiz (todos os serviços, a checagem de contratos e os testes de unidade do front), em `backend/` (só os serviços e os contratos) ou em `backend/<svc>/` (um serviço). Em cada serviço:
 
 | Alvo | O que roda |
 |---|---|
@@ -137,7 +137,7 @@ Tudo em container.
 | `make test-unit` | typecheck, lint, regras de arquitetura e testes de unidade (`test/unit/`) |
 | `make test-integration` | testes de integração e de contrato (`test/integration/`) com Postgres, RabbitMQ e Redis efêmeros; os containers são removidos ao final, mesmo se um teste falhar |
 
-O E2E roda com `make e2e` em `backend/`: sobe e migra a plataforma e depois executa os cenários.
+O E2E roda com `make e2e` em `backend/`: sobe e migra a plataforma e depois executa os cenários. Na raiz, `make e2e` faz isso e em seguida roda o Playwright do front.
 
 
 | O quê | Como |

@@ -1,9 +1,7 @@
 # Whole platform: shared infra (RabbitMQ, Redis, edge) + every service in backend/.
-# Each service lives in its own repository (repos.txt) and is cloned into backend/<service>/;
-# each one has its own Makefile for its migrations and tests.
+# Each service lives in its own repository and is cloned into backend/<service>/ by `make clone` at the root
+# (which also starts the front with the backend); each one has its own Makefile for its migrations and tests.
 #
-#   make clone              clone the service repositories that are not in backend/ yet
-#   make pull               update every cloned service (git pull --ff-only)
 #   make up                 create missing .env files and editor dependencies, build and start everything, then migrate every service
 #   make watch              same, in the foreground with Compose Watch (code changes without rebuild)
 #   make infra              start only the shared infra
@@ -14,7 +12,7 @@
 #   make projections-rebuild   rebuild the market-data projections from what matching republishes (platform up)
 #   make test               every kind of test of every service (static checks, unit, integration, contract) + make check
 #   make e2e                start and migrate the platform, then run the end-to-end tests through the edge
-#   make check              contract copies and repository root layout (only backend/, frontend/, sdd/)
+#   make check              every contract copy matches its owner's original (the root layout is checked by the root Makefile)
 #   make env                create each .env from its .env.example when it does not exist yet
 #   make deps               node_modules + generated gRPC code of every service on your machine, for the editor
 
@@ -22,20 +20,7 @@ COMPOSE = docker compose -f docker-compose.yml
 SERVICES = $(patsubst %/Makefile,%,$(wildcard */Makefile))
 ENV_EXAMPLES = $(wildcard infra/.env.example */.env.example */.env.test.example)
 
-.PHONY: clone pull up watch infra migrate ps logs down check env deps deps-missing test e2e projections-rebuild
-
-# A folder may already exist with only a placeholder (frontend/.gitkeep): the repository is initialised inside it.
-clone:
-	@grep -v '^#' repos.txt | while read -r folder url; do \
-	  if [ -d "$$folder/.git" ]; then echo "$$folder: already cloned"; continue; fi; \
-	  mkdir -p "$$folder" && git -C "$$folder" init --quiet && git -C "$$folder" remote add origin "$$url" && \
-	  git -C "$$folder" fetch --quiet origin && git -C "$$folder" checkout --quiet -t origin/main && echo "$$folder: cloned"; \
-	done
-
-pull:
-	@grep -v '^#' repos.txt | while read -r folder url; do \
-	  if [ -d "$$folder/.git" ]; then echo "== $$folder"; git -C "$$folder" pull --ff-only || exit 1; fi; \
-	done
+.PHONY: up watch infra migrate ps logs down check env deps deps-missing test e2e projections-rebuild
 
 env:
 	@for example in $(ENV_EXAMPLES); do \
@@ -90,8 +75,6 @@ logs:
 down:
 	$(COMPOSE) down
 
-ROOT_ENTRIES = .git .claude .planning .DS_Store .gitignore README.md backend frontend sdd
-
 # The broker keeps no history: matching republishes its trades and books on matching.replay.* and
 # market-data applies them until the replayCompleted marker (sdd/03-mensageria.md §8).
 projections-rebuild:
@@ -101,6 +84,3 @@ projections-rebuild:
 
 check:
 	docker run --rm -v "$(CURDIR)":/backend -w /backend node:26-alpine npx --yes tsx scripts/check-schemas.ts .
-	@extra=$$(ls -A .. | grep -vxF $(foreach entry,$(ROOT_ENTRIES),-e $(entry))); \
-	if [ -n "$$extra" ]; then echo "unexpected entries in the repository root: $$extra"; exit 1; fi; \
-	echo "root layout ok"
